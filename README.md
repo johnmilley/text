@@ -59,6 +59,42 @@ The token reference is documented at the top of `text-dark.toml`.
 
 Built-in: Text Dark · Text Light · Night Owl · Monokai Calm · Rosewater · Fjord.
 
+## Installing
+
+`npm run tauri build` drops packages in `src-tauri/target/release/bundle/`:
+
+```sh
+sudo dnf install ./src-tauri/target/release/bundle/rpm/text-0.1.0-1.x86_64.rpm   # Fedora
+sudo apt install ./src-tauri/target/release/bundle/deb/text_0.1.0_amd64.deb     # Debian/Ubuntu
+# or run the AppImage anywhere (no install, ~100MB — bundles its own WebKit)
+```
+
+Installs as `text` (app menu and terminal). On Wayland the binary disables
+WebKitGTK's DMA-BUF renderer itself (it crashes with "Error 71" on some
+compositor/driver combos) — set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to override.
+
+## Code map
+
+```
+src-tauri/src/      Rust backend (one module per concern)
+  files.rs          tree walk, read, atomic write + conflict detection, trash
+  search.rs         folder-wide grep + backlink scan
+  watch.rs          notify watcher → debounced "fs:changed" events
+  themes.rs         TOML theme loading; seeds bundled themes on first run
+  config.rs         ~/.config/text/config.toml
+src-tauri/themes/   the six bundled theme files (embedded at compile time)
+src/                frontend (vanilla TS, no framework)
+  main.ts           app shell: tree, panes, save/conflict flow, shortcuts
+  editor.ts         CodeMirror 6 setup, language switching, vim compartment
+  mdstyle.ts        markdown line/inline styling, wikilinks, tags, frontmatter
+  theme.ts          theme tokens → CSS custom properties
+  modal.ts          picker / prompt / confirm dialogs
+  fuzzy.ts          subsequence scoring for the switcher
+```
+
+Everything is themed through CSS variables; the editor and UI share one
+token set, so a theme TOML restyles both.
+
 ## Development
 
 Prerequisites: Rust, Node, and on Linux the Tauri system libraries
