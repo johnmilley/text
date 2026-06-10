@@ -530,6 +530,8 @@ async function openRoot(path: string) {
   }
   const last = localStorage.getItem("text.lastFile");
   if (last && allFiles.some((f) => f.path === last)) await openFile(last);
+  else if (notes.length) await openFile(notes[0].path);
+  else if (allFiles.length) await openFile(allFiles[0].path);
   else $("#welcome").style.display = "";
 }
 
