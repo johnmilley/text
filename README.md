@@ -70,3 +70,7 @@ npm install
 npm run tauri dev      # run
 npm run tauri build    # bundle (.deb/.rpm/.AppImage; .dmg/.msi on those hosts)
 ```
+
+The AppImage step needs `NO_STRIP=true npm run tauri build -- --bundles appimage`
+on recent Fedora — linuxdeploy's bundled `strip` can't read modern `.relr.dyn`
+sections. The deb/rpm bundles are unaffected.
