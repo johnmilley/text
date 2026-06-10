@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>text</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <nav id="sidebar-tabs">
+          <button data-tab="files" class="active" title="Files">files</button>
+          <button data-tab="search" title="Search everywhere (Ctrl+Shift+F)">search</button>
+          <button data-tab="links" title="Backlinks (Ctrl+Shift+B)">links</button>
+        </nav>
+
+        <section id="pane-files" class="pane active">
+          <div id="folder-row">
+            <span id="folder-name" title="Open another folder">no folder</span>
+            <span class="row-actions">
+              <button id="btn-new-note" title="New note (Ctrl+N)">+</button>
+              <button id="btn-new-folder" title="New folder">⊞</button>
+            </span>
+          </div>
+          <div id="tree" tabindex="-1"></div>
+        </section>
+
+        <section id="pane-search" class="pane">
+          <input id="search-input" placeholder="search folder…" spellcheck="false" />
+          <div id="search-results" class="hit-list"></div>
+        </section>
+
+        <section id="pane-links" class="pane">
+          <div id="backlinks-title" class="pane-caption">no note open</div>
+          <div id="backlinks-results" class="hit-list"></div>
+        </section>
+
+        <footer id="sidebar-foot">
+          <button id="btn-daily" title="Today's daily note (Ctrl+T)">today</button>
+          <button id="btn-theme" title="Switch theme (Ctrl+Shift+T)">theme</button>
+          <button id="btn-config" title="Edit config.toml (Ctrl+,)">config</button>
+        </footer>
+      </aside>
+
+      <div id="resizer"></div>
+
+      <main id="main">
+        <div id="banner" hidden>
+          <span id="banner-text"></span>
+          <span id="banner-actions"></span>
+        </div>
+        <div id="editor-host"></div>
+        <div id="welcome">
+          <div class="welcome-box">
+            <h1>text</h1>
+            <p>a plain editor for a folder of plain files</p>
+            <button id="btn-open-folder">open folder</button>
+            <p class="welcome-keys">
+              ctrl+p switch &nbsp; ctrl+shift+f search &nbsp; ctrl+t today &nbsp; ctrl+, config
+            </p>
+          </div>
+        </div>
+        <footer id="status">
+          <span id="status-left">
+            <span id="status-path"></span><span id="status-dirty" hidden> ●</span>
+          </span>
+          <span id="status-right"></span>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>
