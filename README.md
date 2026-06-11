@@ -30,6 +30,7 @@ Built with Tauri 2 (Rust) and CodeMirror 6.
 | `Ctrl+Shift+B` | backlinks to the open note |
 | `Ctrl+Shift+T` | theme picker (live preview) |
 | `Ctrl+B` / `Ctrl+I` | bold / italic |
+| `Ctrl+K` | markdown link from the selection (selected URL → cursor in the text slot) |
 | `Ctrl+Enter` or `Ctrl+Click` | follow `[[wikilink]]` (creates the note if missing) |
 | `Ctrl+=` / `Ctrl+-` | editor font bigger / smaller |
 | `Ctrl+Shift+=` / `Ctrl+Shift+-` | UI font (sidebar, status bar) bigger / smaller |
@@ -39,6 +40,21 @@ Built with Tauri 2 (Rust) and CodeMirror 6.
 | `Ctrl+\` | toggle sidebar |
 
 Typing `[[` autocompletes against every note in the folder.
+
+## Files beyond markdown
+
+- **Images** (png/jpg/gif/webp/…) show in the tree, open in a viewer, and
+  `![[image.png]]` / `![alt](path)` render inline in notes. Drag an image
+  file onto a note to copy it into the folder and embed it; paste a
+  screenshot from the clipboard and it's saved as `pasted-<date>.png`.
+  Where copies land is set by `image_dir` (default: the folder root).
+- **CSV/TSV** open as a read-only table ("edit as text" in the status bar
+  toggles back to the raw file).
+- **PDFs** show in the tree and open in the system viewer.
+
+In the tree: drag files or folders to move them, right-click for
+rename / reveal in file manager / delete, ⊟ collapses all folders.
+Pasting a URL over selected text turns it into a markdown link.
 
 ## Configuration
 
@@ -51,6 +67,8 @@ font_size = 15        # editor text (Ctrl+= / Ctrl+-)
 ui_font_size = 13     # sidebar, status bar (Ctrl+Shift+= / Ctrl+Shift+-)
 vim_mode = false      # modal editing via codemirror-vim
 daily_dir = "daily"   # daily notes folder, relative to the notes root
+image_dir = ""        # where dropped/pasted images land, relative to the
+                      # notes root ("" = the root itself)
 ```
 
 ## Themes

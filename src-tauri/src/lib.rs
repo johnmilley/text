@@ -17,6 +17,8 @@ pub fn run() {
             files::write_file,
             files::create_file,
             files::create_dir,
+            files::import_file,
+            files::write_base64,
             files::rename_path,
             files::trash_path,
             files::stat_mtime,

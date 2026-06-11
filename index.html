@@ -23,6 +23,7 @@
             <span class="row-actions">
               <button id="btn-new-note" title="New note (Ctrl+N)">+</button>
               <button id="btn-new-folder" title="New folder">⊞</button>
+              <button id="btn-collapse" title="Collapse all folders">⊟</button>
             </span>
           </div>
           <div id="tree" tabindex="-1"></div>
@@ -54,6 +55,7 @@
         </div>
         <div id="editor-host"></div>
         <div id="image-view" hidden><img alt="" /></div>
+        <div id="table-view" hidden></div>
         <div id="welcome">
           <div class="welcome-box">
             <h1>text</h1>
@@ -66,9 +68,13 @@
         </div>
         <footer id="status">
           <span id="status-left">
+            <button id="btn-sidebar" title="Toggle sidebar (Ctrl+\)">◧</button>
             <span id="status-path"></span><span id="status-dirty" hidden> ●</span>
           </span>
-          <span id="status-right"></span>
+          <span class="status-group">
+            <button id="btn-table" hidden>text</button>
+            <span id="status-right"></span>
+          </span>
         </footer>
       </main>
     </div>

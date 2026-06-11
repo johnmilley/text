@@ -33,6 +33,14 @@ pub fn is_image_file(path: &Path) -> bool {
     }
 }
 
+/// Formats shown in the tree but handed to the system viewer on open.
+pub fn is_external_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some(ext) if ext.eq_ignore_ascii_case("pdf")
+    )
+}
+
 fn is_hidden(name: &str) -> bool {
     name.starts_with('.')
 }
@@ -66,7 +74,9 @@ fn walk(dir: &Path, depth: usize) -> Result<Vec<Entry>, String> {
                 path: path.to_string_lossy().into_owned(),
                 is_dir: true,
             });
-        } else if ft.is_file() && (is_text_file(&path) || is_image_file(&path)) {
+        } else if ft.is_file()
+            && (is_text_file(&path) || is_image_file(&path) || is_external_file(&path))
+        {
             files.push(Entry {
                 name,
                 path: path.to_string_lossy().into_owned(),
@@ -181,6 +191,54 @@ pub fn create_file(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn create_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(Path::new(&path)).map_err(|e| e.to_string())
+}
+
+/// First free path for `name` in `dir`: name.png, name-1.png, name-2.png…
+fn dedup_path(dir: &Path, name: &str) -> PathBuf {
+    let candidate = dir.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+        _ => (name, String::new()),
+    };
+    (1..)
+        .map(|n| dir.join(format!("{stem}-{n}{ext}")))
+        .find(|p| !p.exists())
+        .unwrap()
+}
+
+/// Copy an outside file (drag-drop) into `dest_dir`, deduplicating the name.
+/// Returns the final path.
+#[tauri::command]
+pub fn import_file(src: String, dest_dir: String) -> Result<String, String> {
+    let src = PathBuf::from(&src);
+    let name = src
+        .file_name()
+        .ok_or("source has no file name")?
+        .to_string_lossy()
+        .into_owned();
+    let dir = PathBuf::from(&dest_dir);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dedup_path(&dir, &name);
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Write base64 bytes (clipboard image paste) into `dest_dir` as `name`,
+/// deduplicating. Returns the final path.
+#[tauri::command]
+pub fn write_base64(dest_dir: String, name: String, base64: String) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64)
+        .map_err(|e| e.to_string())?;
+    let dir = PathBuf::from(&dest_dir);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = dedup_path(&dir, &name);
+    fs::write(&dest, bytes).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().into_owned())
 }
 
 #[tauri::command]

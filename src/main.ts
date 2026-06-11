@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import * as api from "./api";
 import { Editor, type NoteRef } from "./editor";
 import { applyTheme, setFontSize, setUiFontSize } from "./theme";
@@ -23,6 +24,8 @@ let currentPath: string | null = null;
 let currentMtime: number | null = null;
 let viewingImage = false;
 let imageBytes = 0;
+let tableMode = true; // csv/tsv files open as a table until toggled off
+let tableDims = "";
 let dirty = false;
 let saving = false;
 let autosaveTimer: number | undefined;
@@ -42,6 +45,13 @@ const rel = (path: string) =>
 const stem = (name: string) => name.replace(/\.[^.]+$/, "");
 
 const isNote = (name: string) => /\.(md|markdown|mdown)$/i.test(name);
+
+const isTable = (name: string) => /\.(csv|tsv)$/i.test(name);
+
+// in the tree, but the system viewer handles it
+const isExternalDoc = (name: string) => /\.pdf$/i.test(name);
+
+const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/"));
 
 function today(): string {
   const d = new Date();
@@ -100,11 +110,21 @@ const hideBanner = () => {
 const fmtSize = (n: number) =>
   n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 
+const tableShown = () => !$("#table-view").hidden;
+
 function updateStatus() {
   $("#status-path").textContent = currentPath ? rel(currentPath) : "";
   $("#status-dirty").hidden = !dirty;
+  const tableBtn = $("#btn-table");
+  tableBtn.hidden = !currentPath || !isTable(currentPath);
+  tableBtn.textContent = tableShown() ? "edit as text" : "view as table";
   if (!currentPath) {
     $("#status-right").textContent = "";
+    return;
+  }
+  if (tableShown()) {
+    $("#status-right").textContent = tableDims;
+    document.title = `text — ${rel(currentPath)}`;
     return;
   }
   if (viewingImage) {
@@ -181,6 +201,7 @@ treeEl.addEventListener("mousedown", (e) => {
   const entry = entryAt(e);
   if (!entry) return;
   e.preventDefault();
+  beginTreeDrag(entry, e); // arms a possible drag; activation below still runs
   if (entry.is_dir) {
     expanded.has(entry.path) ? expanded.delete(entry.path) : expanded.add(entry.path);
     localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
@@ -195,6 +216,95 @@ treeEl.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   showContextMenu(e, entry);
 });
+
+// Pointer-based drag to move tree entries between folders (HTML5 drag-and-drop
+// is unreliable inside Tauri webviews when native file drop is enabled).
+// Armed on every row mousedown; becomes a drag once the pointer travels a bit.
+function beginTreeDrag(entry: api.Entry, e: MouseEvent) {
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const wasExpanded = expanded.has(entry.path);
+  let ghost: HTMLElement | null = null;
+  let target: string | null = null;
+
+  const setTarget = (t: string | null) => {
+    document.querySelector(".drop-into")?.classList.remove("drop-into");
+    target = t;
+    if (t === null) return;
+    (t === root ? treeEl : (rowByPath.get(t) ?? treeEl)).classList.add("drop-into");
+  };
+
+  // dir under the pointer: a dir row itself, a file row's parent, or the
+  // tree background for the root — null when the move would be a no-op
+  const targetAt = (x: number, y: number): string | null => {
+    const el = document.elementFromPoint(x, y);
+    if (!el || !root) return null;
+    const row = el.closest<HTMLElement>(".tree-row");
+    let dest: string | null = null;
+    if (row?.dataset.path) {
+      const over = entryByPath.get(row.dataset.path);
+      if (over) dest = over.is_dir ? over.path : parentOf(over.path);
+    } else if (el.closest("#pane-files")) {
+      dest = root;
+    }
+    if (!dest || dest === parentOf(entry.path)) return null;
+    if (dest === entry.path || dest.startsWith(entry.path + "/")) return null;
+    return dest;
+  };
+
+  const move = (ev: MouseEvent) => {
+    if (!ghost) {
+      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 6) return;
+      // the arming mousedown already toggled a dir — put it back
+      if (entry.is_dir && expanded.has(entry.path) !== wasExpanded) {
+        wasExpanded ? expanded.add(entry.path) : expanded.delete(entry.path);
+        localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
+        renderTree();
+      }
+      ghost = document.createElement("div");
+      ghost.id = "drag-ghost";
+      ghost.textContent = entry.name;
+      document.body.appendChild(ghost);
+      document.body.classList.add("tree-dragging");
+    }
+    ghost.style.left = `${ev.clientX + 12}px`;
+    ghost.style.top = `${ev.clientY + 8}px`;
+    setTarget(targetAt(ev.clientX, ev.clientY));
+  };
+
+  const up = () => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    document.body.classList.remove("tree-dragging");
+    const dest = target;
+    setTarget(null);
+    if (ghost && dest) void movePath(entry, dest);
+    ghost?.remove();
+  };
+
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+}
+
+async function movePath(entry: api.Entry, destDir: string) {
+  const to = `${destDir}/${entry.name}`;
+  try {
+    await api.renamePath(entry.path, to);
+    if (currentPath && (currentPath === entry.path || currentPath.startsWith(entry.path + "/"))) {
+      currentPath = to + currentPath.slice(entry.path.length);
+      localStorage.setItem("text.lastFile", currentPath);
+    }
+    if (expanded.delete(entry.path)) {
+      expanded.add(to);
+      localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
+    }
+    await refreshTree();
+    setCurrentRow(currentPath);
+    updateStatus();
+  } catch (err) {
+    showBanner(`move failed: ${err}`, [{ label: "ok", run: hideBanner }]);
+  }
+}
 
 function showContextMenu(e: MouseEvent, entry: api.Entry) {
   document.getElementById("ctx-menu")?.remove();
@@ -217,6 +327,7 @@ function showContextMenu(e: MouseEvent, entry: api.Entry) {
     add("new folder inside", () => void newFolder(entry.path));
   }
   add("rename", () => void renameEntry(entry));
+  add("reveal in file manager", () => void revealItemInDir(entry.path));
   add("delete", () => void deleteEntry(entry));
   menu.style.left = `${e.clientX}px`;
   menu.style.top = `${e.clientY}px`;
@@ -243,6 +354,7 @@ async function refreshTree() {
 
 async function openFile(path: string) {
   if (isViewableImage(path)) return openImage(path);
+  if (isExternalDoc(path)) return void openPath(path);
   if (currentPath && dirty) await save();
   hideBanner();
   try {
@@ -252,6 +364,8 @@ async function openFile(path: string) {
     dirty = false;
     hideImageView();
     editor.openDoc(file.content, path.split("/").pop() ?? path);
+    if (isTable(path) && tableMode) showTableView();
+    else hideTableView();
     $("#welcome").style.display = "none";
     localStorage.setItem("text.lastFile", path);
     setCurrentRow(path);
@@ -272,6 +386,7 @@ async function openImage(path: string) {
     currentMtime = null;
     dirty = false;
     viewingImage = true;
+    hideTableView();
     imageBytes = dataUrlBytes(src);
     const img = $<HTMLImageElement>("#image-view img");
     img.onload = updateStatus; // natural dimensions arrive async
@@ -290,6 +405,77 @@ async function openImage(path: string) {
 function hideImageView() {
   viewingImage = false;
   $("#image-view").hidden = true;
+}
+
+// ---------------------------------------------------------------- table view
+
+/** Parse comma/tab-separated text, honoring quoted fields. */
+function parseDsv(text: string, delim: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c !== '"') field += c;
+      else if (text[i + 1] === '"') (field += '"'), i++;
+      else inQuotes = false;
+    } else if (c === '"' && field === "") {
+      inQuotes = true;
+    } else if (c === delim) {
+      row.push(field);
+      field = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field);
+      rows.push(row);
+      (row = []), (field = "");
+    } else {
+      field += c;
+    }
+  }
+  if (field !== "" || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+const TABLE_MAX_ROWS = 2000;
+
+function renderTableView() {
+  if (!currentPath) return;
+  const rows = parseDsv(editor.text, /\.tsv$/i.test(currentPath) ? "\t" : ",");
+  const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+  const table = document.createElement("table");
+  for (const [i, r] of rows.slice(0, TABLE_MAX_ROWS).entries()) {
+    const tr = document.createElement("tr");
+    for (let c = 0; c < cols; c++) {
+      const cell = document.createElement(i === 0 ? "th" : "td");
+      cell.textContent = r[c] ?? "";
+      tr.appendChild(cell);
+    }
+    table.appendChild(tr);
+  }
+  const view = $("#table-view");
+  view.replaceChildren(table);
+  if (rows.length > TABLE_MAX_ROWS) {
+    const note = document.createElement("div");
+    note.className = "table-note";
+    note.textContent = `showing the first ${TABLE_MAX_ROWS} of ${rows.length} rows — switch to text for the rest`;
+    view.prepend(note);
+  }
+  tableDims = `${rows.length} rows · ${cols} cols`;
+}
+
+function showTableView() {
+  renderTableView();
+  $("#table-view").hidden = false;
+}
+
+function hideTableView() {
+  $("#table-view").hidden = true;
 }
 
 async function save(): Promise<boolean> {
@@ -393,6 +579,7 @@ function closeCurrent() {
   currentMtime = null;
   dirty = false;
   hideImageView();
+  hideTableView();
   editor.openDoc("", "untitled.md");
   $("#welcome").style.display = "";
   setCurrentRow(null);
@@ -523,6 +710,68 @@ async function resolveImage(target: string): Promise<string | null> {
   const base = t.split("/").pop()!.toLowerCase();
   const hit = allFiles.find((f) => f.path.split("/").pop()!.toLowerCase() === base);
   return hit ? loadImage(hit.path).catch(() => null) : null;
+}
+
+// ---------------------------------------------------------------- image import
+
+/** Where dropped/pasted images land (config.image_dir, relative to root). */
+function imageDestDir(): string {
+  const sub = config.image_dir.replace(/^\/+|\/+$/g, "");
+  return sub ? `${root}/${sub}` : root!;
+}
+
+const blobToBase64 = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve((r.result as string).split(",", 2)[1]);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+
+function timestamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${today()}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+/** Save a pasted clipboard image into the notes folder; returns the file
+ * name to embed, or null. */
+async function importImageBlob(blob: File): Promise<string | null> {
+  if (!root) return null;
+  try {
+    const ext = (blob.type.split("/")[1] ?? "png").replace("jpeg", "jpg").replace(/\+.*$/, "");
+    const b64 = await blobToBase64(blob);
+    const path = await api.writeBase64(imageDestDir(), `pasted-${timestamp()}.${ext}`, b64);
+    await refreshTree();
+    return path.split("/").pop()!;
+  } catch (err) {
+    showBanner(`image paste failed: ${err}`, [{ label: "ok", run: hideBanner }]);
+    return null;
+  }
+}
+
+/** Native file drop: copy images into the notes folder and, when dropped on
+ * an open note, insert an embed at the drop point. */
+async function handleFileDrop(paths: string[], position: { x: number; y: number }) {
+  if (!root) return;
+  const scale = window.devicePixelRatio || 1;
+  const x = position.x / scale;
+  const y = position.y / scale;
+  const overEditor = !!document.elementFromPoint(x, y)?.closest("#editor-host");
+  for (const src of paths) {
+    const name = src.split("/").pop()!;
+    if (!isViewableImage(name) && !/\.svg$/i.test(name)) continue;
+    try {
+      // already inside the notes folder — embed it without copying
+      const path = src.startsWith(root + "/") ? src : await api.importFile(src, imageDestDir());
+      await refreshTree();
+      if (overEditor && currentPath && isNote(currentPath) && !viewingImage && !tableShown()) {
+        editor.insertAt(`![[${path.split("/").pop()!}]]\n`, { x, y });
+      }
+    } catch (err) {
+      showBanner(`import failed: ${err}`, [{ label: "ok", run: hideBanner }]);
+    }
+  }
 }
 
 // ---------------------------------------------------------------- sidebar panes
@@ -734,14 +983,14 @@ function onKeydown(e: KeyboardEvent) {
   if (key === "t") return run(() => void openDaily());
   if (key === ",") return run(() => void openConfig());
   if (key === "o") return run(() => void chooseFolder());
-  if (key === "\\") {
-    return run(() => {
-      const sb = $("#sidebar");
-      const hidden = sb.style.display === "none";
-      sb.style.display = hidden ? "" : "none";
-      $("#resizer").style.display = hidden ? "" : "none";
-    });
-  }
+  if (key === "\\") return run(toggleSidebar);
+}
+
+function toggleSidebar() {
+  const sb = $("#sidebar");
+  const hidden = sb.style.display === "none";
+  sb.style.display = hidden ? "" : "none";
+  $("#resizer").style.display = hidden ? "" : "none";
 }
 
 // ---------------------------------------------------------------- resizer
@@ -778,12 +1027,14 @@ async function init() {
       dirty = true;
       updateStatus();
       scheduleAutosave();
+      if (tableShown()) renderTableView(); // external reload while in table view
     },
     onStatus: updateStatus,
     onSave: () => void save(),
     getNotes: () => notes,
     openWikilink,
     resolveImage,
+    importImageBlob,
   });
 
   await applyConfigFromDisk();
@@ -792,6 +1043,18 @@ async function init() {
   $("#folder-name").addEventListener("click", () => void chooseFolder());
   $("#btn-new-note").addEventListener("click", () => void newNote());
   $("#btn-new-folder").addEventListener("click", () => void newFolder());
+  $("#btn-collapse").addEventListener("click", () => {
+    expanded.clear();
+    localStorage.setItem("text.expanded", "[]");
+    renderTree();
+  });
+  $("#btn-sidebar").addEventListener("click", toggleSidebar);
+  $("#btn-table").addEventListener("click", () => {
+    tableMode = !tableShown();
+    if (tableMode) showTableView();
+    else (hideTableView(), editor.focus());
+    updateStatus();
+  });
   $("#btn-daily").addEventListener("click", () => void openDaily());
   $("#btn-theme").addEventListener("click", () => void pickTheme());
   $("#btn-config").addEventListener("click", () => void openConfig());
@@ -810,6 +1073,11 @@ async function init() {
   initResizer();
 
   await listen<string[]>("fs:changed", (event) => void onFsChanged(event.payload));
+  await getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === "drop") {
+      void handleFileDrop(event.payload.paths, event.payload.position);
+    }
+  });
 
   if (config.root) {
     try {

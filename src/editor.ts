@@ -31,7 +31,15 @@ export interface EditorCallbacks {
   getNotes: () => NoteRef[];
   openWikilink: (target: string) => void;
   resolveImage: ImageResolver;
+  /** Save a pasted image; resolves to the file name to embed, or null. */
+  importImageBlob: (blob: File) => Promise<string | null>;
 }
+
+/** Files that get markdown styling, embeds, and link shortcuts. */
+const isMarkdownish = (filename: string) =>
+  /\.(md|markdown|mdown|txt|text)$/.test(filename.toLowerCase()) || !filename.includes(".");
+
+const URL_RE = /^https?:\/\/\S+$/i;
 
 const cmTheme = EditorView.theme({
   "&": {
@@ -131,6 +139,26 @@ function toggleWrap(marker: string) {
   };
 }
 
+/** Markdown link from the selection: [sel](cursor), or [cursor](sel) when the
+ * selection is already a URL. */
+function insertLink(view: EditorView): boolean {
+  const tr = view.state.changeByRange((range) => {
+    const sel = view.state.sliceDoc(range.from, range.to);
+    if (URL_RE.test(sel)) {
+      return {
+        changes: { from: range.from, to: range.to, insert: `[](${sel})` },
+        range: EditorSelection.cursor(range.from + 1),
+      };
+    }
+    return {
+      changes: { from: range.from, to: range.to, insert: `[${sel}]()` },
+      range: EditorSelection.cursor(range.from + sel.length + 3),
+    };
+  });
+  view.dispatch(tr);
+  return true;
+}
+
 export class Editor {
   view: EditorView;
   private lang = new Compartment();
@@ -138,6 +166,7 @@ export class Editor {
   private callbacks: EditorCallbacks;
   private vimOn = false;
   private currentFile = "";
+  private markdownish = true;
 
   constructor(parent: HTMLElement, callbacks: EditorCallbacks) {
     this.callbacks = callbacks;
@@ -170,6 +199,7 @@ export class Editor {
         },
         { key: "Mod-b", run: toggleWrap("**") },
         { key: "Mod-i", run: toggleWrap("*") },
+        { key: "Mod-k", run: (view) => this.markdownish && insertLink(view) },
         {
           key: "Mod-Enter",
           run: (view) => {
@@ -195,6 +225,36 @@ export class Editor {
           cbs.openWikilink(target);
           return true;
         },
+        paste: (event, view) => {
+          if (!this.markdownish || !event.clipboardData) return false;
+          // a clipboard image (screenshot) — save it and embed
+          const image = [...event.clipboardData.files].find((f) => f.type.startsWith("image/"));
+          if (image) {
+            event.preventDefault();
+            void cbs.importImageBlob(image).then((name) => {
+              if (!name) return;
+              const { from, to } = view.state.selection.main;
+              const insert = `![[${name}]]`;
+              view.dispatch({
+                changes: { from, to, insert },
+                selection: { anchor: from + insert.length },
+              });
+            });
+            return true;
+          }
+          // a URL pasted over selected text becomes a link
+          const text = event.clipboardData.getData("text/plain").trim();
+          const { from, to } = view.state.selection.main;
+          if (from === to || !URL_RE.test(text)) return false;
+          const sel = view.state.sliceDoc(from, to);
+          if (URL_RE.test(sel)) return false; // replacing a URL — plain paste
+          event.preventDefault();
+          view.dispatch({
+            changes: { from, to, insert: `[${sel}](${text})` },
+            selection: { anchor: from + sel.length + text.length + 4 },
+          });
+          return true;
+        },
       }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) cbs.onDocChanged();
@@ -206,6 +266,7 @@ export class Editor {
   private makeState(content: string, filename: string): EditorState {
     const state = EditorState.create({ doc: content, extensions: this.extensions() });
     this.currentFile = filename;
+    this.markdownish = isMarkdownish(filename);
     return state;
   }
 
@@ -216,8 +277,7 @@ export class Editor {
   }
 
   private async applyLanguage(filename: string) {
-    const lower = filename.toLowerCase();
-    if (/\.(md|markdown|mdown|txt|text)$/.test(lower) || !lower.includes(".")) {
+    if (isMarkdownish(filename)) {
       this.view.dispatch({
         effects: this.lang.reconfigure([
           markdown({ codeLanguages: languages }),
@@ -245,6 +305,17 @@ export class Editor {
       changes: { from: 0, to: this.view.state.doc.length, insert: content },
       selection: { anchor: Math.min(prev, content.length) },
     });
+  }
+
+  /** Insert text at the given client coordinates (file drop), or the cursor. */
+  insertAt(text: string, coords?: { x: number; y: number }) {
+    const pos =
+      (coords ? this.view.posAtCoords(coords) : null) ?? this.view.state.selection.main.head;
+    this.view.dispatch({
+      changes: { from: pos, insert: text },
+      selection: { anchor: pos + text.length },
+    });
+    this.view.focus();
   }
 
   setVim(on: boolean) {

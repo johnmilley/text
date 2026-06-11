@@ -41,6 +41,7 @@ export interface Config {
   vim_mode: boolean;
   root: string | null;
   daily_dir: string;
+  image_dir: string;
   sidebar_width: number;
 }
 
@@ -58,6 +59,10 @@ export const statMtime = (path: string) => invoke<number>("stat_mtime", { path }
 export const createFile = (path: string) => invoke<void>("create_file", { path });
 export const createDir = (path: string) => invoke<void>("create_dir", { path });
 export const renamePath = (from: string, to: string) => invoke<void>("rename_path", { from, to });
+export const importFile = (src: string, destDir: string) =>
+  invoke<string>("import_file", { src, destDir });
+export const writeBase64 = (destDir: string, name: string, base64: string) =>
+  invoke<string>("write_base64", { destDir, name, base64 });
 export const trashPath = (path: string) => invoke<void>("trash_path", { path });
 export const searchText = (root: string, query: string) =>
   invoke<Hit[]>("search_text", { root, query });

@@ -14,6 +14,9 @@ pub struct Config {
     pub root: Option<String>,
     /// folder for daily notes, relative to the notes root
     pub daily_dir: String,
+    /// where dropped/pasted images land, relative to the notes root
+    /// ("" = the root itself)
+    pub image_dir: String,
     pub sidebar_width: u16,
 }
 
@@ -26,6 +29,7 @@ impl Default for Config {
             vim_mode: false,
             root: None,
             daily_dir: "daily".into(),
+            image_dir: "".into(),
             sidebar_width: 240,
         }
     }

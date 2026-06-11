@@ -269,6 +269,64 @@ button:hover {
   border-radius: 3px;
 }
 
+#table-view {
+  position: absolute;
+  inset: 0 0 24px 0;
+  z-index: 1;
+  overflow: auto;
+  background: var(--bg);
+  padding: 0 16px 16px;
+}
+#table-view[hidden] {
+  display: none;
+}
+#table-view table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+#table-view th,
+#table-view td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  text-align: left;
+  max-width: 44ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#table-view th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+}
+.table-note {
+  padding: 6px 0;
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+
+#drag-ghost {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 0.9em;
+  opacity: 0.9;
+}
+.tree-row.drop-into {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+#tree.drop-into {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+body.tree-dragging,
+body.tree-dragging * {
+  cursor: grabbing;
+}
+
 #welcome {
   position: absolute;
   inset: 0 0 24px 0;
@@ -306,6 +364,23 @@ button:hover {
   color: var(--fg-muted);
   font-size: 0.85em;
   font-family: var(--font-editor);
+}
+#status-left,
+.status-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+#status button {
+  padding: 0 6px;
+  color: var(--fg-muted);
+}
+#status button:hover {
+  color: var(--fg);
+}
+#btn-sidebar {
+  margin-left: -6px;
 }
 #status-dirty {
   color: var(--accent);
