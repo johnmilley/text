@@ -350,6 +350,39 @@ async function refreshTree() {
   renderTree();
 }
 
+// ---------------------------------------------------------------- nav history
+
+const histBack: string[] = [];
+const histFwd: string[] = [];
+let navigating = false;
+
+/** Push the file being left onto the back stack (unless this open *is* a
+ * back/forward jump). */
+function recordNav(opening: string) {
+  if (navigating || !currentPath || currentPath === opening) return;
+  histBack.push(currentPath);
+  if (histBack.length > 100) histBack.shift();
+  histFwd.length = 0;
+}
+
+/** Pop the nearest still-existing path; deleted/moved files are skipped. */
+function popExisting(stack: string[]): string | undefined {
+  let path: string | undefined;
+  while ((path = stack.pop()) && !allFiles.some((f) => f.path === path)) {}
+  return path;
+}
+
+function navigate(from: string[], to: string[]) {
+  const path = popExisting(from);
+  if (!path) return;
+  if (currentPath) to.push(currentPath);
+  navigating = true;
+  void openFile(path).finally(() => (navigating = false));
+}
+
+const goBack = () => navigate(histBack, histFwd);
+const goForward = () => navigate(histFwd, histBack);
+
 // ---------------------------------------------------------------- open/save
 
 async function openFile(path: string) {
@@ -359,6 +392,7 @@ async function openFile(path: string) {
   hideBanner();
   try {
     const file = await api.readFile(path);
+    recordNav(path);
     currentPath = path;
     currentMtime = file.mtime;
     dirty = false;
@@ -382,6 +416,7 @@ async function openImage(path: string) {
   hideBanner();
   try {
     const src = await loadImage(path);
+    recordNav(path);
     currentPath = path;
     currentMtime = null;
     dirty = false;
@@ -950,6 +985,12 @@ async function chooseFolder() {
 
 function onKeydown(e: KeyboardEvent) {
   const mod = e.ctrlKey || e.metaKey;
+  // Alt+arrows: back/forward. The editor keymap handles these itself when
+  // focused (defaultPrevented) — this catches them everywhere else.
+  if (e.altKey && !mod && !e.shiftKey && !e.defaultPrevented) {
+    if (e.key === "ArrowLeft") return (e.preventDefault(), goBack());
+    if (e.key === "ArrowRight") return (e.preventDefault(), goForward());
+  }
   if (!mod) {
     if (e.key === "Escape") closeModal();
     return;
@@ -1035,6 +1076,8 @@ async function init() {
     openWikilink,
     resolveImage,
     importImageBlob,
+    onNavBack: goBack,
+    onNavForward: goForward,
   });
 
   await applyConfigFromDisk();

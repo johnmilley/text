@@ -32,6 +32,7 @@ Built with Tauri 2 (Rust) and CodeMirror 6.
 | `Ctrl+B` / `Ctrl+I` | bold / italic |
 | `Ctrl+K` | markdown link from the selection (selected URL → cursor in the text slot) |
 | `Ctrl+Enter` or `Ctrl+Click` | follow `[[wikilink]]` (creates the note if missing) |
+| `Alt+←` / `Alt+→` | back / forward through previously opened files |
 | `Ctrl+=` / `Ctrl+-` | editor font bigger / smaller |
 | `Ctrl+Shift+=` / `Ctrl+Shift+-` | UI font (sidebar, status bar) bigger / smaller |
 | `Ctrl+0` | reset both font sizes |

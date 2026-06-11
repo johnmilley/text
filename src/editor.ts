@@ -33,6 +33,8 @@ export interface EditorCallbacks {
   resolveImage: ImageResolver;
   /** Save a pasted image; resolves to the file name to embed, or null. */
   importImageBlob: (blob: File) => Promise<string | null>;
+  onNavBack: () => void;
+  onNavForward: () => void;
 }
 
 /** Files that get markdown styling, embeds, and link shortcuts. */
@@ -200,6 +202,9 @@ export class Editor {
         { key: "Mod-b", run: toggleWrap("**") },
         { key: "Mod-i", run: toggleWrap("*") },
         { key: "Mod-k", run: (view) => this.markdownish && insertLink(view) },
+        // shadow defaultKeymap's Alt-Arrow cursor motion — back/forward nav
+        { key: "Alt-ArrowLeft", run: () => (cbs.onNavBack(), true) },
+        { key: "Alt-ArrowRight", run: () => (cbs.onNavForward(), true) },
         {
           key: "Mod-Enter",
           run: (view) => {
