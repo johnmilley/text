@@ -17,6 +17,7 @@ import { languages } from "@codemirror/language-data";
 import { LanguageDescription } from "@codemirror/language";
 import { vim } from "@replit/codemirror-vim";
 import { baseHighlighting, markdownStyling, wikilinkAt } from "./mdstyle";
+import { imageEmbeds, type ImageResolver } from "./images";
 
 export interface NoteRef {
   name: string; // file name without extension
@@ -29,6 +30,7 @@ export interface EditorCallbacks {
   onSave: () => void;
   getNotes: () => NoteRef[];
   openWikilink: (target: string) => void;
+  resolveImage: ImageResolver;
 }
 
 const cmTheme = EditorView.theme({
@@ -220,6 +222,7 @@ export class Editor {
         effects: this.lang.reconfigure([
           markdown({ codeLanguages: languages }),
           markdownStyling(),
+          imageEmbeds(this.callbacks.resolveImage),
         ]),
       });
       return;

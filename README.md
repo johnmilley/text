@@ -31,6 +31,9 @@ Built with Tauri 2 (Rust) and CodeMirror 6.
 | `Ctrl+Shift+T` | theme picker (live preview) |
 | `Ctrl+B` / `Ctrl+I` | bold / italic |
 | `Ctrl+Enter` or `Ctrl+Click` | follow `[[wikilink]]` (creates the note if missing) |
+| `Ctrl+=` / `Ctrl+-` | editor font bigger / smaller |
+| `Ctrl+Shift+=` / `Ctrl+Shift+-` | UI font (sidebar, status bar) bigger / smaller |
+| `Ctrl+0` | reset both font sizes |
 | `Ctrl+,` | open `config.toml` in the editor |
 | `Ctrl+O` | open a different folder |
 | `Ctrl+\` | toggle sidebar |
@@ -44,7 +47,8 @@ when you save the file.
 
 ```toml
 theme = "text-dark"   # a file stem from the themes folder
-font_size = 15
+font_size = 15        # editor text (Ctrl+= / Ctrl+-)
+ui_font_size = 13     # sidebar, status bar (Ctrl+Shift+= / Ctrl+Shift+-)
 vim_mode = false      # modal editing via codemirror-vim
 daily_dir = "daily"   # daily notes folder, relative to the notes root
 ```

@@ -20,6 +20,19 @@ pub fn is_text_file(path: &Path) -> bool {
     }
 }
 
+/// Image formats the viewer can display. Shown in the tree but never
+/// searched or opened as text.
+pub const IMAGE_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "tiff", "tif",
+];
+
+pub fn is_image_file(path: &Path) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => IMAGE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()),
+        None => false,
+    }
+}
+
 fn is_hidden(name: &str) -> bool {
     name.starts_with('.')
 }
@@ -53,7 +66,7 @@ fn walk(dir: &Path, depth: usize) -> Result<Vec<Entry>, String> {
                 path: path.to_string_lossy().into_owned(),
                 is_dir: true,
             });
-        } else if ft.is_file() && is_text_file(&path) {
+        } else if ft.is_file() && (is_text_file(&path) || is_image_file(&path)) {
             files.push(Entry {
                 name,
                 path: path.to_string_lossy().into_owned(),
@@ -95,6 +108,23 @@ pub fn read_file(path: String) -> Result<FileContent, String> {
     let content = String::from_utf8(bytes)
         .map_err(|_| format!("{} is not valid UTF-8 text", p.display()))?;
     Ok(FileContent { content, mtime: mtime_of(p)? })
+}
+
+#[derive(Serialize)]
+pub struct ImageContent {
+    pub base64: String,
+    pub mtime: u64,
+}
+
+#[tauri::command]
+pub fn read_image(path: String) -> Result<ImageContent, String> {
+    use base64::Engine;
+    let p = Path::new(&path);
+    let bytes = fs::read(p).map_err(|e| e.to_string())?;
+    Ok(ImageContent {
+        base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+        mtime: mtime_of(p)?,
+    })
 }
 
 #[derive(Serialize)]

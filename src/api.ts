@@ -37,14 +37,21 @@ export interface Theme {
 export interface Config {
   theme: string;
   font_size: number;
+  ui_font_size: number;
   vim_mode: boolean;
   root: string | null;
   daily_dir: string;
   sidebar_width: number;
 }
 
+export interface ImageContent {
+  base64: string;
+  mtime: number;
+}
+
 export const listTree = (root: string) => invoke<Entry[]>("list_tree", { root });
 export const readFile = (path: string) => invoke<FileContent>("read_file", { path });
+export const readImage = (path: string) => invoke<ImageContent>("read_image", { path });
 export const writeFile = (path: string, content: string, expectedMtime: number | null) =>
   invoke<WriteResult>("write_file", { path, content, expectedMtime });
 export const statMtime = (path: string) => invoke<number>("stat_mtime", { path });

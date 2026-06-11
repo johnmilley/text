@@ -8,6 +8,7 @@ pub struct Config {
     /// theme id (file stem in the themes dir)
     pub theme: String,
     pub font_size: u16,
+    pub ui_font_size: u16,
     pub vim_mode: bool,
     /// last opened notes folder
     pub root: Option<String>,
@@ -21,6 +22,7 @@ impl Default for Config {
         Config {
             theme: "text-dark".into(),
             font_size: 15,
+            ui_font_size: 13,
             vim_mode: false,
             root: None,
             daily_dir: "daily".into(),

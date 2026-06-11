@@ -3,8 +3,9 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import * as api from "./api";
 import { Editor, type NoteRef } from "./editor";
-import { applyTheme, setFontSize } from "./theme";
+import { applyTheme, setFontSize, setUiFontSize } from "./theme";
 import { closeModal, confirmBox, pick, promptText } from "./modal";
+import { dataUrlBytes, invalidateImage, isViewableImage, loadImage } from "./images";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
   document.querySelector(sel) as T;
@@ -20,6 +21,8 @@ let notes: NoteRef[] = [];
 
 let currentPath: string | null = null;
 let currentMtime: number | null = null;
+let viewingImage = false;
+let imageBytes = 0;
 let dirty = false;
 let saving = false;
 let autosaveTimer: number | undefined;
@@ -94,11 +97,21 @@ const hideBanner = () => {
 
 // ---------------------------------------------------------------- status bar
 
+const fmtSize = (n: number) =>
+  n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+
 function updateStatus() {
   $("#status-path").textContent = currentPath ? rel(currentPath) : "";
   $("#status-dirty").hidden = !dirty;
   if (!currentPath) {
     $("#status-right").textContent = "";
+    return;
+  }
+  if (viewingImage) {
+    const img = $<HTMLImageElement>("#image-view img");
+    const dims = img.naturalWidth ? `${img.naturalWidth}×${img.naturalHeight} · ` : "";
+    $("#status-right").textContent = `${dims}${fmtSize(imageBytes)}`;
+    document.title = `text — ${rel(currentPath)}`;
     return;
   }
   const s = editor.status();
@@ -110,8 +123,12 @@ function updateStatus() {
 // ---------------------------------------------------------------- file tree
 
 const treeEl = $("#tree");
+const entryByPath = new Map<string, api.Entry>();
+const rowByPath = new Map<string, HTMLElement>();
 
 function renderTree() {
+  entryByPath.clear();
+  rowByPath.clear();
   treeEl.replaceChildren(...tree.map((e) => renderEntry(e, 0)));
 }
 
@@ -119,7 +136,10 @@ function renderEntry(entry: api.Entry, depth: number): HTMLElement {
   const row = document.createElement("div");
   row.className = "tree-row" + (entry.is_dir ? " dir" : "");
   row.style.paddingLeft = `${10 + depth * 14}px`;
+  row.dataset.path = entry.path;
   if (entry.path === currentPath) row.classList.add("current");
+  entryByPath.set(entry.path, entry);
+  rowByPath.set(entry.path, row);
 
   const label = document.createElement("span");
   label.className = "tree-label";
@@ -137,25 +157,44 @@ function renderEntry(entry: api.Entry, depth: number): HTMLElement {
   const wrap = document.createElement("div");
   wrap.appendChild(row);
 
-  row.addEventListener("click", () => {
-    if (entry.is_dir) {
-      expanded.has(entry.path) ? expanded.delete(entry.path) : expanded.add(entry.path);
-      localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
-      renderTree();
-    } else {
-      void openFile(entry.path);
-    }
-  });
-  row.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    showContextMenu(e, entry);
-  });
-
   if (entry.is_dir && expanded.has(entry.path) && entry.children) {
     for (const child of entry.children) wrap.appendChild(renderEntry(child, depth + 1));
   }
   return wrap;
 }
+
+/** Mark the open file in the tree without rebuilding it. */
+function setCurrentRow(path: string | null) {
+  for (const [p, row] of rowByPath) row.classList.toggle("current", p === path);
+}
+
+function entryAt(e: Event): api.Entry | undefined {
+  const row = (e.target as HTMLElement).closest<HTMLElement>(".tree-row");
+  return row?.dataset.path ? entryByPath.get(row.dataset.path) : undefined;
+}
+
+// Activate rows on mousedown, delegated from the container: it reacts a beat
+// faster than click and survives the tree being re-rendered mid-press (a
+// rebuild between mousedown and mouseup would otherwise swallow the click).
+treeEl.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  const entry = entryAt(e);
+  if (!entry) return;
+  e.preventDefault();
+  if (entry.is_dir) {
+    expanded.has(entry.path) ? expanded.delete(entry.path) : expanded.add(entry.path);
+    localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
+    renderTree();
+  } else {
+    void openFile(entry.path);
+  }
+});
+treeEl.addEventListener("contextmenu", (e) => {
+  const entry = entryAt(e);
+  if (!entry) return;
+  e.preventDefault();
+  showContextMenu(e, entry);
+});
 
 function showContextMenu(e: MouseEvent, entry: api.Entry) {
   document.getElementById("ctx-menu")?.remove();
@@ -164,7 +203,10 @@ function showContextMenu(e: MouseEvent, entry: api.Entry) {
   const add = (label: string, run: () => void) => {
     const item = document.createElement("div");
     item.textContent = label;
-    item.addEventListener("click", () => {
+    // mousedown, not click: the document-level close handler below also fires
+    // on mousedown and would remove the menu before a click could complete.
+    item.addEventListener("mousedown", (ev) => {
+      ev.stopPropagation();
       menu.remove();
       run();
     });
@@ -183,16 +225,24 @@ function showContextMenu(e: MouseEvent, entry: api.Entry) {
   setTimeout(() => document.addEventListener("mousedown", close, { once: true }));
 }
 
+let treeFingerprint = "";
+
 async function refreshTree() {
   if (!root) return;
   tree = await api.listTree(root);
   flatten(tree);
+  // Skip the DOM rebuild when nothing structural changed (autosaves trip the
+  // fs watcher constantly); rebuilding mid-interaction eats mouse presses.
+  const fingerprint = JSON.stringify(tree);
+  if (fingerprint === treeFingerprint) return;
+  treeFingerprint = fingerprint;
   renderTree();
 }
 
 // ---------------------------------------------------------------- open/save
 
 async function openFile(path: string) {
+  if (isViewableImage(path)) return openImage(path);
   if (currentPath && dirty) await save();
   hideBanner();
   try {
@@ -200,10 +250,11 @@ async function openFile(path: string) {
     currentPath = path;
     currentMtime = file.mtime;
     dirty = false;
+    hideImageView();
     editor.openDoc(file.content, path.split("/").pop() ?? path);
     $("#welcome").style.display = "none";
     localStorage.setItem("text.lastFile", path);
-    renderTree();
+    setCurrentRow(path);
     updateStatus();
     void refreshBacklinks();
     editor.focus();
@@ -212,8 +263,37 @@ async function openFile(path: string) {
   }
 }
 
+async function openImage(path: string) {
+  if (currentPath && dirty && !viewingImage) await save();
+  hideBanner();
+  try {
+    const src = await loadImage(path);
+    currentPath = path;
+    currentMtime = null;
+    dirty = false;
+    viewingImage = true;
+    imageBytes = dataUrlBytes(src);
+    const img = $<HTMLImageElement>("#image-view img");
+    img.onload = updateStatus; // natural dimensions arrive async
+    img.src = src;
+    $("#image-view").hidden = false;
+    $("#welcome").style.display = "none";
+    localStorage.setItem("text.lastFile", path);
+    setCurrentRow(path);
+    updateStatus();
+    void refreshBacklinks();
+  } catch (err) {
+    showBanner(String(err), [{ label: "ok", run: hideBanner }]);
+  }
+}
+
+function hideImageView() {
+  viewingImage = false;
+  $("#image-view").hidden = true;
+}
+
 async function save(): Promise<boolean> {
-  if (!currentPath || saving) return true;
+  if (!currentPath || saving || viewingImage) return true;
   saving = true;
   try {
     const result = await api.writeFile(currentPath, editor.text, currentMtime);
@@ -259,7 +339,20 @@ function scheduleAutosave() {
 
 async function onFsChanged(paths: string[]) {
   await refreshTree();
+  for (const p of paths) invalidateImage(p);
   if (!currentPath || !paths.includes(currentPath)) return;
+  if (viewingImage) {
+    try {
+      await api.statMtime(currentPath);
+    } catch {
+      showBanner("this image was deleted or moved on disk", [
+        { label: "close it", run: closeCurrent },
+      ]);
+      return;
+    }
+    await openImage(currentPath);
+    return;
+  }
   let onDisk: number;
   try {
     onDisk = await api.statMtime(currentPath);
@@ -299,8 +392,10 @@ function closeCurrent() {
   currentPath = null;
   currentMtime = null;
   dirty = false;
+  hideImageView();
   editor.openDoc("", "untitled.md");
   $("#welcome").style.display = "";
+  setCurrentRow(null);
   updateStatus();
 }
 
@@ -385,8 +480,49 @@ async function createAndOpen(name: string) {
 
 function openWikilink(target: string) {
   const hit = notes.find((n) => n.name.toLowerCase() === target.toLowerCase());
-  if (hit) void openFile(hit.path);
-  else void createAndOpen(target);
+  if (hit) return void openFile(hit.path);
+  // non-note targets like [[photo.png]] — match by file name
+  const file = allFiles.find(
+    (f) => f.path.split("/").pop()!.toLowerCase() === target.toLowerCase(),
+  );
+  if (file) return void openFile(file.path);
+  void createAndOpen(target);
+}
+
+// ---------------------------------------------------------------- image embeds
+
+/** Collapse `.` and `..` segments so relative links match tree paths. */
+function normalizePath(p: string): string {
+  const abs = p.startsWith("/");
+  const parts: string[] = [];
+  for (const part of p.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return (abs ? "/" : "") + parts.join("/");
+}
+
+/** Resolve an embed target to an img src: URLs pass through; local paths are
+ * tried relative to the open file, then the root, then by bare file name. */
+async function resolveImage(target: string): Promise<string | null> {
+  if (/^(https?:|data:)/i.test(target)) return target;
+  if (!root) return null;
+  let t = target;
+  try {
+    t = decodeURIComponent(target);
+  } catch {
+    // not URI-encoded — use as-is
+  }
+  const dir = currentPath ? currentPath.slice(0, currentPath.lastIndexOf("/")) : root;
+  const candidates = t.startsWith("/") ? [t] : [`${dir}/${t}`, `${root}/${t}`];
+  for (const c of candidates) {
+    const path = normalizePath(c);
+    if (allFiles.some((f) => f.path === path)) return loadImage(path).catch(() => null);
+  }
+  const base = t.split("/").pop()!.toLowerCase();
+  const hit = allFiles.find((f) => f.path.split("/").pop()!.toLowerCase() === base);
+  return hit ? loadImage(hit.path).catch(() => null) : null;
 }
 
 // ---------------------------------------------------------------- sidebar panes
@@ -501,10 +637,31 @@ async function pickTheme() {
 }
 
 let configFilePath = "";
+let configSaveTimer: number | undefined;
+
+function scheduleConfigSave() {
+  window.clearTimeout(configSaveTimer);
+  configSaveTimer = window.setTimeout(() => void api.saveConfig(config), 400);
+}
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+function bumpEditorFont(delta: number) {
+  config.font_size = clamp(config.font_size + delta, 9, 40);
+  setFontSize(config.font_size);
+  scheduleConfigSave();
+}
+
+function bumpUiFont(delta: number) {
+  config.ui_font_size = clamp(config.ui_font_size + delta, 9, 28);
+  setUiFontSize(config.ui_font_size);
+  scheduleConfigSave();
+}
 
 async function applyConfigFromDisk() {
   config = await api.loadConfig();
   setFontSize(config.font_size);
+  setUiFontSize(config.ui_font_size);
   editor.setVim(config.vim_mode);
   $("#sidebar").style.width = `${config.sidebar_width}px`;
   themes = await api.listThemes();
@@ -553,6 +710,19 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault();
     fn();
   };
+  // font size: Ctrl+= / Ctrl+- for the editor, Ctrl+Shift+= / Ctrl+Shift+-
+  // for the UI (sidebar, status bar); Ctrl+0 resets both. Matched on e.code
+  // so they work regardless of keyboard layout and shift state.
+  if (e.code === "Equal" || e.code === "Minus" || e.code === "NumpadAdd" || e.code === "NumpadSubtract") {
+    const delta = e.code === "Equal" || e.code === "NumpadAdd" ? 1 : -1;
+    return run(() => (e.shiftKey ? bumpUiFont(delta) : bumpEditorFont(delta)));
+  }
+  if (e.code === "Digit0" && !e.shiftKey) {
+    return run(() => {
+      bumpEditorFont(15 - config.font_size);
+      bumpUiFont(13 - config.ui_font_size);
+    });
+  }
   if (e.shiftKey) {
     if (key === "f") return run(() => showPane("search"));
     if (key === "b") return run(() => showPane("links"));
@@ -613,6 +783,7 @@ async function init() {
     onSave: () => void save(),
     getNotes: () => notes,
     openWikilink,
+    resolveImage,
   });
 
   await applyConfigFromDisk();

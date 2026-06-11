@@ -50,3 +50,7 @@ export function applyTheme(theme: Theme) {
 export function setFontSize(px: number) {
   document.documentElement.style.setProperty("--editor-font-size", `${px}px`);
 }
+
+export function setUiFontSize(px: number) {
+  document.documentElement.style.setProperty("--ui-font-size", `${px}px`);
+}

@@ -12,7 +12,7 @@ body {
   background: var(--bg, #151618);
   color: var(--fg, #d4d4d0);
   font-family: var(--font-ui, system-ui, sans-serif);
-  font-size: 13px;
+  font-size: var(--ui-font-size, 13px);
 }
 
 button {
@@ -117,12 +117,13 @@ button:hover {
 }
 
 .tree-row {
-  padding: 2px 8px;
+  padding: 3px 8px;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--fg);
+  user-select: none;
 }
 .tree-row.dir {
   color: var(--fg-muted);
@@ -175,7 +176,7 @@ button:hover {
 }
 .hit-where {
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.85em;
   margin-bottom: 1px;
 }
 .hit-text {
@@ -217,6 +218,8 @@ button:hover {
 }
 
 #banner {
+  position: relative;
+  z-index: 2; /* above the image viewer overlay */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -236,6 +239,34 @@ button:hover {
 }
 #editor-host .cm-editor {
   height: 100%;
+}
+
+#image-view {
+  position: absolute;
+  inset: 0 0 24px 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: auto;
+  background: var(--bg);
+}
+#image-view[hidden] {
+  display: none;
+}
+#image-view img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  /* subtle checkerboard so transparency reads */
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--fg) 7%, transparent) 0 90deg,
+      transparent 0 180deg
+    )
+    0 0 / 16px 16px;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.25);
+  border-radius: 3px;
 }
 
 #welcome {
@@ -263,7 +294,7 @@ button:hover {
   color: var(--accent);
 }
 .welcome-keys {
-  font-size: 11px;
+  font-size: 0.85em;
 }
 
 #status {
@@ -273,7 +304,7 @@ button:hover {
   border-top: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--fg-muted);
-  font-size: 11px;
+  font-size: 0.85em;
   font-family: var(--font-editor);
 }
 #status-dirty {
@@ -410,6 +441,22 @@ button:hover {
 }
 .cm-wikilink:hover {
   text-decoration: underline;
+}
+
+.cm-image-embed {
+  display: block;
+  padding: 4px 0 2px;
+}
+.cm-image-embed img {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  border-radius: 4px;
+}
+.cm-image-embed.cm-image-missing {
+  color: var(--fg-muted);
+  font-style: italic;
+  font-size: 0.85em;
 }
 
 .cm-hashtag {
