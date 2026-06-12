@@ -4,6 +4,7 @@ export interface Entry {
   name: string;
   path: string;
   is_dir: boolean;
+  mtime: number;
   children: Entry[] | null;
 }
 
@@ -38,11 +39,14 @@ export interface Config {
   theme: string;
   font_size: number;
   ui_font_size: number;
+  editor_font: string;
   vim_mode: boolean;
   root: string | null;
+  recent_roots: string[];
   daily_dir: string;
   image_dir: string;
   sidebar_width: number;
+  keys: Record<string, string>;
 }
 
 export interface ImageContent {
@@ -59,6 +63,10 @@ export const statMtime = (path: string) => invoke<number>("stat_mtime", { path }
 export const createFile = (path: string) => invoke<void>("create_file", { path });
 export const createDir = (path: string) => invoke<void>("create_dir", { path });
 export const renamePath = (from: string, to: string) => invoke<void>("rename_path", { from, to });
+export const copyPath = (src: string, destDir: string) =>
+  invoke<string>("copy_path", { src, destDir });
+export const overwriteBase64 = (path: string, base64: string) =>
+  invoke<void>("overwrite_base64", { path, base64 });
 export const importFile = (src: string, destDir: string) =>
   invoke<string>("import_file", { src, destDir });
 export const writeBase64 = (destDir: string, name: string, base64: string) =>
@@ -68,6 +76,43 @@ export const searchText = (root: string, query: string) =>
   invoke<Hit[]>("search_text", { root, query });
 export const findBacklinks = (root: string, target: string) =>
   invoke<Hit[]>("find_backlinks", { root, target });
+export interface ShareEntry {
+  folder: string;
+  slug: string;
+  repo: string;
+  url: string;
+  created: number; // unix seconds
+  expires: number | null;
+}
+
+export interface ShareStatus {
+  entry: ShareEntry | null;
+  orphans: ShareEntry[];
+}
+
+export interface ShareResult {
+  share: ShareEntry;
+  pushed: boolean;
+  pages: number;
+  skipped: string[];
+}
+
+export const shareStatus = (folder: string) => invoke<ShareStatus>("share_status", { folder });
+export const createShare = (folder: string, expiresDays: number | null) =>
+  invoke<ShareResult>("create_share", { folder, expiresDays });
+export const updateShare = (folder: string) => invoke<ShareResult>("update_share", { folder });
+export const destroyShare = (folder: string) => invoke<void>("destroy_share", { folder });
+export const cleanupShares = () => invoke<string[]>("cleanup_expired_shares");
+
+export interface WindowInit {
+  root: string | null;
+  file: string | null;
+}
+
+export const openWindow = (root: string | null, file: string | null) =>
+  invoke<void>("open_window", { root, file });
+export const windowInitParams = () => invoke<WindowInit | null>("window_init_params");
+
 export const listThemes = () => invoke<Theme[]>("list_themes");
 export const themesDirPath = () => invoke<string>("themes_dir_path");
 export const loadConfig = () => invoke<Config>("load_config");

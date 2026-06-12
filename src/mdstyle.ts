@@ -198,14 +198,77 @@ const hashtags = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
+// task-list checkboxes: `- [ ]` / `- [x]`, clickable (toggled in editor.ts)
+const CHECKBOX_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[[ xX]\](?=\s|$)/g;
+
+const checkboxDecorator = new MatchDecorator({
+  regexp: CHECKBOX_RE,
+  decorate(add, from, to, match) {
+    const start = from + match[1].length;
+    const checked = /[xX]/.test(match[0].slice(-2, -1));
+    add(
+      start,
+      to,
+      Decoration.mark({ class: "cm-checkbox" + (checked ? " cm-checked" : "") }),
+    );
+  },
+});
+
+const checkboxes = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = checkboxDecorator.createDeco(view);
+    }
+    update(update: ViewUpdate) {
+      this.decorations = checkboxDecorator.updateDeco(update, this.decorations);
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
+
+/** Flip the `[ ]`/`[x]` covering `pos`, if any. Returns true when toggled. */
+export function toggleCheckboxAt(view: EditorView, pos: number): boolean {
+  const line = view.state.doc.lineAt(pos);
+  CHECKBOX_RE.lastIndex = 0;
+  const m = CHECKBOX_RE.exec(line.text);
+  if (!m) return false;
+  const from = line.from + m[1].length;
+  const to = from + 3;
+  if (pos < from || pos > to) return false;
+  const checked = /[xX]/.test(line.text.charAt(m[1].length + 1));
+  view.dispatch({ changes: { from: from + 1, to: to - 1, insert: checked ? " " : "x" } });
+  return true;
+}
+
 /** Extensions for markdown documents. */
 export function markdownStyling(): Extension {
-  return [lineStyles, frontmatter, wikilinks, hashtags];
+  return [lineStyles, frontmatter, wikilinks, hashtags, checkboxes];
 }
 
 /** The shared highlight style (markdown inline + generic code tokens). */
 export function baseHighlighting(): Extension {
   return syntaxHighlighting(inlineHighlight, { fallback: true });
+}
+
+// bare URLs and the (target) of markdown links — for Ctrl+click to browser
+const BARE_URL_RE = /https?:\/\/[^\s<>()[\]"']+/g;
+const MD_LINK_RE = /\[[^\]\n]*\]\((https?:[^()\s]+)(?:\s+"[^"]*")?\)/g;
+
+/** Find the external URL covering `pos` (bare, or a markdown link). */
+export function urlAt(view: EditorView, pos: number): string | null {
+  const line = view.state.doc.lineAt(pos);
+  for (const m of line.text.matchAll(MD_LINK_RE)) {
+    const from = line.from + (m.index ?? 0);
+    if (pos >= from && pos <= from + m[0].length) return m[1];
+  }
+  for (const m of line.text.matchAll(BARE_URL_RE)) {
+    const from = line.from + (m.index ?? 0);
+    // trim trailing punctuation that's almost never part of the URL
+    const url = m[0].replace(/[.,;:!?]+$/, "");
+    if (pos >= from && pos <= from + url.length) return url;
+  }
+  return null;
 }
 
 /** Find the wikilink target covering `pos`, if any. */

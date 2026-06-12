@@ -9,6 +9,16 @@
   </head>
 
   <body>
+    <header id="titlebar" data-tauri-drag-region>
+      <button id="btn-sidebar" title="Toggle sidebar (Ctrl+\)" tabindex="-1">◧</button>
+      <span id="titlebar-title" data-tauri-drag-region>text</span>
+      <span id="titlebar-buttons">
+        <button id="tb-min" title="Minimize" tabindex="-1">&#x2013;</button>
+        <button id="tb-max" title="Maximize" tabindex="-1">&#x25A1;</button>
+        <button id="tb-close" title="Close" tabindex="-1">&#x2715;</button>
+      </span>
+    </header>
+
     <div id="app">
       <aside id="sidebar">
         <nav id="sidebar-tabs">
@@ -19,10 +29,11 @@
 
         <section id="pane-files" class="pane active">
           <div id="folder-row">
-            <span id="folder-name" title="Open another folder">no folder</span>
+            <span id="folder-name" title="Switch folder (Ctrl+Shift+O)">no folder</span>
             <span class="row-actions">
               <button id="btn-new-note" title="New note (Ctrl+N)">+</button>
               <button id="btn-new-folder" title="New folder">⊞</button>
+              <button id="btn-sort" title="Sort: default">↕</button>
               <button id="btn-collapse" title="Collapse all folders">⊟</button>
             </span>
           </div>
@@ -41,7 +52,7 @@
 
         <footer id="sidebar-foot">
           <button id="btn-daily" title="Today's daily note (Ctrl+T)">today</button>
-          <button id="btn-theme" title="Switch theme (Ctrl+Shift+T)">theme</button>
+          <button id="btn-share" title="Share this folder as a website (Ctrl+Shift+S)">share</button>
           <button id="btn-config" title="Edit config.toml (Ctrl+,)">config</button>
         </footer>
       </aside>
@@ -49,34 +60,77 @@
       <div id="resizer"></div>
 
       <main id="main">
-        <div id="banner" hidden>
-          <span id="banner-text"></span>
-          <span id="banner-actions"></span>
+        <div id="tabbar">
+          <div id="tabs"></div>
+          <button id="tab-new" title="New tab (Ctrl+Shift+N)">+</button>
         </div>
+        <div id="content">
         <div id="editor-host"></div>
-        <div id="image-view" hidden><img alt="" /></div>
+        <button id="btn-table" hidden>view as table</button>
+        <div id="image-view" hidden>
+          <div id="image-tools">
+            <button id="img-rot-l" title="Rotate left 90°">⟲</button>
+            <button id="img-rot-r" title="Rotate right 90°">⟳</button>
+            <span class="tools-sep"></span>
+            <button id="img-shrink" title="Scale down">−</button>
+            <span id="img-scale" title="Scale (aspect kept)">100%</span>
+            <button id="img-grow" title="Scale up">+</button>
+            <span class="tools-sep"></span>
+            <button id="img-reset" title="Discard pending edits" hidden>reset</button>
+            <button id="img-save-copy" title="Save edited image as a copy" hidden>save copy</button>
+            <button id="img-overwrite" title="Overwrite the original file" hidden>overwrite</button>
+          </div>
+          <div id="image-stage"><img alt="" /></div>
+        </div>
+        <div id="audio-view" hidden>
+          <div class="audio-box">
+            <div id="audio-name"></div>
+            <audio controls></audio>
+          </div>
+        </div>
         <div id="table-view" hidden></div>
+        <div id="pdf-view" hidden>
+          <div id="pdf-tools">
+            <span id="pdf-name"></span>
+            <span class="tools-sep"></span>
+            <span id="pdf-page-info"></span>
+            <span class="tools-sep"></span>
+            <button id="pdf-shrink" title="Zoom out">−</button>
+            <span id="pdf-zoom" title="Zoom (relative to page width)">100%</span>
+            <button id="pdf-grow" title="Zoom in">+</button>
+            <button id="pdf-fit" title="Fit page width">fit</button>
+            <span class="tools-sep"></span>
+            <button id="pdf-external" title="Open in the system PDF viewer">open externally</button>
+          </div>
+          <div id="pdf-pages"></div>
+        </div>
         <div id="welcome">
           <div class="welcome-box">
             <h1>text</h1>
             <p>a plain editor for a folder of plain files</p>
             <button id="btn-open-folder">open folder</button>
             <p class="welcome-keys">
-              ctrl+p switch &nbsp; ctrl+shift+f search &nbsp; ctrl+t today &nbsp; ctrl+, config
+              ctrl+p switch &nbsp; ctrl+shift+f search &nbsp; ctrl+t today &nbsp; ctrl+/ shortcuts
             </p>
           </div>
         </div>
-        <footer id="status">
-          <span id="status-left">
-            <button id="btn-sidebar" title="Toggle sidebar (Ctrl+\)">◧</button>
-            <span id="status-path"></span><span id="status-dirty" hidden> ●</span>
-          </span>
-          <span class="status-group">
-            <button id="btn-table" hidden>text</button>
-            <span id="status-right"></span>
-          </span>
+        </div>
+        <!-- issue bar: hidden unless something needs attention -->
+        <footer id="status" hidden>
+          <span id="status-text"></span>
+          <span id="status-actions"></span>
         </footer>
       </main>
     </div>
+
+    <!-- window resize grips (no native decorations) -->
+    <div class="grip" data-dir="North"></div>
+    <div class="grip" data-dir="South"></div>
+    <div class="grip" data-dir="East"></div>
+    <div class="grip" data-dir="West"></div>
+    <div class="grip" data-dir="NorthEast"></div>
+    <div class="grip" data-dir="NorthWest"></div>
+    <div class="grip" data-dir="SouthEast"></div>
+    <div class="grip" data-dir="SouthWest"></div>
   </body>
 </html>

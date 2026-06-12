@@ -28,7 +28,12 @@ const FONT_DEFAULTS: Record<string, string> = {
   ui: "system-ui, sans-serif",
 };
 
+/** config.editor_font: a font stack that wins over the theme's editor font. */
+let editorFontOverride: string | null = null;
+let currentTheme: Theme | null = null;
+
 export function applyTheme(theme: Theme) {
+  currentTheme = theme;
   const root = document.documentElement;
   for (const [token, fallback] of Object.entries(TOKEN_DEFAULTS)) {
     root.style.setProperty(`--${token}`, theme.colors[token] ?? fallback);
@@ -36,6 +41,7 @@ export function applyTheme(theme: Theme) {
   for (const [token, fallback] of Object.entries(FONT_DEFAULTS)) {
     root.style.setProperty(`--font-${token}`, theme.fonts[token] ?? fallback);
   }
+  if (editorFontOverride) root.style.setProperty("--font-editor", editorFontOverride);
   root.dataset.dark = String(theme.dark);
 
   let style = document.getElementById("theme-css");
@@ -45,6 +51,16 @@ export function applyTheme(theme: Theme) {
     document.head.appendChild(style);
   }
   style.textContent = theme.css ?? "";
+}
+
+/** Set (or with null/"" clear) the editor font override and apply it now. */
+export function setEditorFont(stack: string | null) {
+  editorFontOverride = stack || null;
+  const root = document.documentElement;
+  root.style.setProperty(
+    "--font-editor",
+    editorFontOverride ?? currentTheme?.fonts.editor ?? FONT_DEFAULTS.editor,
+  );
 }
 
 export function setFontSize(px: number) {

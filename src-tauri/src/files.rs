@@ -33,8 +33,20 @@ pub fn is_image_file(path: &Path) -> bool {
     }
 }
 
-/// Formats shown in the tree but handed to the system viewer on open.
-pub fn is_external_file(path: &Path) -> bool {
+/// Audio formats the built-in player can handle. Shown in the tree but
+/// never searched or opened as text.
+pub const AUDIO_EXTENSIONS: &[&str] =
+    &["mp3", "wav", "ogg", "oga", "m4a", "flac", "opus", "aac", "weba"];
+
+pub fn is_audio_file(path: &Path) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => AUDIO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()),
+        None => false,
+    }
+}
+
+/// PDF documents — shown in the tree and rendered by the in-app viewer.
+pub fn is_pdf_file(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|e| e.to_str()),
         Some(ext) if ext.eq_ignore_ascii_case("pdf")
@@ -50,6 +62,7 @@ pub struct Entry {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    pub mtime: u64,
     pub children: Option<Vec<Entry>>,
 }
 
@@ -67,20 +80,26 @@ fn walk(dir: &Path, depth: usize) -> Result<Vec<Entry>, String> {
             continue;
         }
         let Ok(ft) = item.file_type() else { continue };
+        let mtime = mtime_of(&path).unwrap_or(0);
         if ft.is_dir() {
             dirs.push(Entry {
                 children: Some(walk(&path, depth + 1)?),
                 name,
                 path: path.to_string_lossy().into_owned(),
                 is_dir: true,
+                mtime,
             });
         } else if ft.is_file()
-            && (is_text_file(&path) || is_image_file(&path) || is_external_file(&path))
+            && (is_text_file(&path)
+                || is_image_file(&path)
+                || is_audio_file(&path)
+                || is_pdf_file(&path))
         {
             files.push(Entry {
                 name,
                 path: path.to_string_lossy().into_owned(),
                 is_dir: false,
+                mtime,
                 children: None,
             });
         }
@@ -239,6 +258,69 @@ pub fn write_base64(dest_dir: String, name: String, base64: String) -> Result<St
     let dest = dedup_path(&dir, &name);
     fs::write(&dest, bytes).map_err(|e| e.to_string())?;
     Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Free path for `name` in `dir`, inserting " copy" (then " copy 2"…) before
+/// the extension when the name is taken — for duplicate / paste in the tree.
+fn copy_dest(dir: &Path, name: &str) -> PathBuf {
+    let candidate = dir.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+        _ => (name, String::new()),
+    };
+    let first = dir.join(format!("{stem} copy{ext}"));
+    if !first.exists() {
+        return first;
+    }
+    (2..)
+        .map(|n| dir.join(format!("{stem} copy {n}{ext}")))
+        .find(|p| !p.exists())
+        .unwrap()
+}
+
+fn copy_recursive(src: &Path, dest: &Path) -> Result<(), String> {
+    if src.is_dir() {
+        fs::create_dir_all(dest).map_err(|e| e.to_string())?;
+        for item in fs::read_dir(src).map_err(|e| e.to_string())?.flatten() {
+            copy_recursive(&item.path(), &dest.join(item.file_name()))?;
+        }
+    } else {
+        fs::copy(src, dest).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Copy a file or folder into `dest_dir` ("paste"/"duplicate" in the tree),
+/// appending " copy" to the name when it would collide. Returns the new path.
+#[tauri::command]
+pub fn copy_path(src: String, dest_dir: String) -> Result<String, String> {
+    let src = PathBuf::from(&src);
+    let name = src
+        .file_name()
+        .ok_or("source has no file name")?
+        .to_string_lossy()
+        .into_owned();
+    let dir = PathBuf::from(&dest_dir);
+    if src.is_dir() && (dir == src || dir.starts_with(&src)) {
+        return Err("cannot copy a folder into itself".into());
+    }
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dest = copy_dest(&dir, &name);
+    copy_recursive(&src, &dest)?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Overwrite `path` with base64 bytes (image editing tools).
+#[tauri::command]
+pub fn overwrite_base64(path: String, base64: String) -> Result<(), String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64)
+        .map_err(|e| e.to_string())?;
+    fs::write(Path::new(&path), bytes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

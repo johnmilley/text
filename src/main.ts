@@ -1,12 +1,17 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import type { EditorState } from "@codemirror/state";
 import * as api from "./api";
 import { Editor, type NoteRef } from "./editor";
-import { applyTheme, setFontSize, setUiFontSize } from "./theme";
-import { closeModal, confirmBox, pick, promptText } from "./modal";
-import { dataUrlBytes, invalidateImage, isViewableImage, loadImage } from "./images";
+import { applyTheme, setEditorFont, setFontSize, setUiFontSize } from "./theme";
+import { closeModal, confirmBox, infoBox, pick, promptText } from "./modal";
+import { openShareDialog } from "./share";
+import { closePdfDoc, initPdfView, isPdfFile, openPdfDoc } from "./pdf";
+import { invalidateImage, isAudioFile, isViewableImage, loadImage } from "./images";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
   document.querySelector(sel) as T;
@@ -23,15 +28,39 @@ let notes: NoteRef[] = [];
 let currentPath: string | null = null;
 let currentMtime: number | null = null;
 let viewingImage = false;
-let imageBytes = 0;
+let viewingAudio = false;
+let viewingPdf = false;
 let tableMode = true; // csv/tsv files open as a table until toggled off
-let tableDims = "";
 let dirty = false;
 let saving = false;
 let autosaveTimer: number | undefined;
 let searchTimer: number | undefined;
 
 let editor: Editor;
+
+// localStorage is shared between windows — only the main window persists
+// its session (tabs, last file); spawned windows are ephemeral.
+const isMain = getCurrentWindow().label === "main";
+
+/** Editor state stashed when a text-file tab is backgrounded. */
+interface TabSnap {
+  path: string;
+  mtime: number; // disk mtime the snapshot was taken at (-1 = unknown)
+  dirty: boolean; // snapshot holds unsaved edits (save failed/conflicted)
+  state: EditorState;
+  scrollTop: number;
+}
+
+interface Tab {
+  path: string | null; // null = empty tab (welcome screen)
+  back: string[]; // per-tab nav history (Alt+← / Alt+→)
+  fwd: string[];
+  snap?: TabSnap;
+}
+
+let tabs: Tab[] = [{ path: null, back: [], fwd: [] }];
+let active = 0;
+const tab = () => tabs[active];
 
 const expanded = new Set<string>(
   JSON.parse(localStorage.getItem("text.expanded") ?? "[]"),
@@ -47,9 +76,6 @@ const stem = (name: string) => name.replace(/\.[^.]+$/, "");
 const isNote = (name: string) => /\.(md|markdown|mdown)$/i.test(name);
 
 const isTable = (name: string) => /\.(csv|tsv)$/i.test(name);
-
-// in the tree, but the system viewer handles it
-const isExternalDoc = (name: string) => /\.pdf$/i.test(name);
 
 const parentOf = (p: string) => p.slice(0, p.lastIndexOf("/"));
 
@@ -79,65 +105,48 @@ function flatten(entries: api.Entry[]) {
   walk(entries);
 }
 
-// ---------------------------------------------------------------- banner
+// ---------------------------------------------------------------- issue bar
 
-const banner = $("#banner");
-const bannerText = $("#banner-text");
-const bannerActions = $("#banner-actions");
+// the status bar at the bottom of the editor — only visible when something
+// needs attention (save conflicts, failed operations, missing files)
 
-function showBanner(text: string, actions: { label: string; run: () => void }[]) {
-  bannerText.textContent = text;
-  bannerActions.replaceChildren(
+const issueBar = $("#status");
+const issueText = $("#status-text");
+const issueActions = $("#status-actions");
+
+function showIssue(text: string, actions: { label: string; run: () => void }[]) {
+  issueText.textContent = text;
+  issueActions.replaceChildren(
     ...actions.map(({ label, run }) => {
       const b = document.createElement("button");
       b.textContent = label;
       b.addEventListener("click", () => {
-        hideBanner();
+        hideIssue();
         run();
       });
       return b;
     }),
   );
-  banner.hidden = false;
+  issueBar.hidden = false;
 }
 
-const hideBanner = () => {
-  banner.hidden = true;
+const hideIssue = () => {
+  issueBar.hidden = true;
 };
 
-// ---------------------------------------------------------------- status bar
-
-const fmtSize = (n: number) =>
-  n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+// ---------------------------------------------------------------- title / table chip
 
 const tableShown = () => !$("#table-view").hidden;
 
 function updateStatus() {
-  $("#status-path").textContent = currentPath ? rel(currentPath) : "";
-  $("#status-dirty").hidden = !dirty;
+  const title = currentPath ? `text — ${rel(currentPath)}` : "text";
+  document.title = title;
+  $("#titlebar-title").textContent = title;
   const tableBtn = $("#btn-table");
   tableBtn.hidden = !currentPath || !isTable(currentPath);
   tableBtn.textContent = tableShown() ? "edit as text" : "view as table";
-  if (!currentPath) {
-    $("#status-right").textContent = "";
-    return;
-  }
-  if (tableShown()) {
-    $("#status-right").textContent = tableDims;
-    document.title = `text — ${rel(currentPath)}`;
-    return;
-  }
-  if (viewingImage) {
-    const img = $<HTMLImageElement>("#image-view img");
-    const dims = img.naturalWidth ? `${img.naturalWidth}×${img.naturalHeight} · ` : "";
-    $("#status-right").textContent = `${dims}${fmtSize(imageBytes)}`;
-    document.title = `text — ${rel(currentPath)}`;
-    return;
-  }
-  const s = editor.status();
-  const counts = isNote(currentPath) ? `${s.words} words · ` : "";
-  $("#status-right").textContent = `${counts}${s.chars} chars · ${s.line}:${s.col}`;
-  document.title = `text — ${rel(currentPath)}`;
+  // unsaved-edits dot on the active tab, without rebuilding the tab bar
+  document.querySelector("#tabs .tab.current")?.classList.toggle("dirty", dirty);
 }
 
 // ---------------------------------------------------------------- file tree
@@ -206,15 +215,24 @@ treeEl.addEventListener("mousedown", (e) => {
     expanded.has(entry.path) ? expanded.delete(entry.path) : expanded.add(entry.path);
     localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
     renderTree();
+  } else if (e.ctrlKey || e.metaKey) {
+    void newTab(entry.path);
   } else {
     void openFile(entry.path);
   }
 });
-treeEl.addEventListener("contextmenu", (e) => {
+// middle-click a file → open it in a new tab
+treeEl.addEventListener("auxclick", (e) => {
+  if (e.button !== 1) return;
   const entry = entryAt(e);
-  if (!entry) return;
+  if (entry && !entry.is_dir) {
+    e.preventDefault();
+    void newTab(entry.path);
+  }
+});
+treeEl.addEventListener("contextmenu", (e) => {
   e.preventDefault();
-  showContextMenu(e, entry);
+  showContextMenu(e, entryAt(e));
 });
 
 // Pointer-based drag to move tree entries between folders (HTML5 drag-and-drop
@@ -292,8 +310,9 @@ async function movePath(entry: api.Entry, destDir: string) {
     await api.renamePath(entry.path, to);
     if (currentPath && (currentPath === entry.path || currentPath.startsWith(entry.path + "/"))) {
       currentPath = to + currentPath.slice(entry.path.length);
-      localStorage.setItem("text.lastFile", currentPath);
+      rememberFile(currentPath);
     }
+    remapTabs(entry.path, to);
     if (expanded.delete(entry.path)) {
       expanded.add(to);
       localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
@@ -302,15 +321,39 @@ async function movePath(entry: api.Entry, destDir: string) {
     setCurrentRow(currentPath);
     updateStatus();
   } catch (err) {
-    showBanner(`move failed: ${err}`, [{ label: "ok", run: hideBanner }]);
+    showIssue(`move failed: ${err}`, [{ label: "ok", run: hideIssue }]);
   }
 }
 
-function showContextMenu(e: MouseEvent, entry: api.Entry) {
+/** The last "copy" from the tree context menu, awaiting a paste. */
+let copiedEntry: { path: string; name: string } | null = null;
+
+async function pasteInto(destDir: string) {
+  if (!copiedEntry) return;
+  try {
+    await api.copyPath(copiedEntry.path, destDir);
+    await refreshTree();
+  } catch (err) {
+    showIssue(`paste failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  }
+}
+
+async function duplicateEntry(entry: api.Entry) {
+  try {
+    await api.copyPath(entry.path, parentOf(entry.path));
+    await refreshTree();
+  } catch (err) {
+    showIssue(`duplicate failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  }
+}
+
+/** Build and show a context menu at the pointer. */
+function openCtxMenu(e: MouseEvent, items: [string, () => void][]) {
   document.getElementById("ctx-menu")?.remove();
+  if (!items.length) return;
   const menu = document.createElement("div");
   menu.id = "ctx-menu";
-  const add = (label: string, run: () => void) => {
+  for (const [label, run] of items) {
     const item = document.createElement("div");
     item.textContent = label;
     // mousedown, not click: the document-level close handler below also fires
@@ -321,14 +364,7 @@ function showContextMenu(e: MouseEvent, entry: api.Entry) {
       run();
     });
     menu.appendChild(item);
-  };
-  if (entry.is_dir) {
-    add("new note inside", () => void newNote(entry.path));
-    add("new folder inside", () => void newFolder(entry.path));
   }
-  add("rename", () => void renameEntry(entry));
-  add("reveal in file manager", () => void revealItemInDir(entry.path));
-  add("delete", () => void deleteEntry(entry));
   menu.style.left = `${e.clientX}px`;
   menu.style.top = `${e.clientY}px`;
   document.body.appendChild(menu);
@@ -336,15 +372,91 @@ function showContextMenu(e: MouseEvent, entry: api.Entry) {
   setTimeout(() => document.addEventListener("mousedown", close, { once: true }));
 }
 
+/** Right-click menu for a tree row, or for the tree background (no entry). */
+function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
+  const items: [string, () => void][] = [];
+  const add = (label: string, run: () => void) => items.push([label, run]);
+  if (entry) {
+    if (entry.is_dir) {
+      add("new note inside", () => void newNote(entry.path));
+      add("new folder inside", () => void newFolder(entry.path));
+      add("share…", () => openShareDialog(entry.path));
+    } else {
+      add("open in new tab", () => void newTab(entry.path));
+      add("open in new window", () => {
+        if (root) void api.openWindow(root, entry.path).catch(() => {});
+      });
+    }
+    add("rename", () => void renameEntry(entry));
+    add("copy", () => (copiedEntry = { path: entry.path, name: entry.name }));
+    add("duplicate", () => void duplicateEntry(entry));
+    if (copiedEntry) {
+      const dest = entry.is_dir ? entry.path : parentOf(entry.path);
+      add(`paste "${copiedEntry.name}"`, () => void pasteInto(dest));
+    }
+    add("reveal in file manager", () => void revealItemInDir(entry.path));
+    add("delete", () => void deleteEntry(entry));
+  } else if (root) {
+    add("new note", () => void newNote());
+    add("new folder", () => void newFolder());
+    add("share this folder…", shareRoot);
+    if (copiedEntry) add(`paste "${copiedEntry.name}"`, () => void pasteInto(root!));
+  }
+  openCtxMenu(e, items);
+}
+
+// ------------------------------------------------------------- tree sorting
+
+type SortMode = "default" | "za" | "newest";
+const SORT_LABEL: Record<SortMode, string> = {
+  default: "Sort: a–z (default)",
+  za: "Sort: z–a",
+  newest: "Sort: newest first",
+};
+let sortMode = (localStorage.getItem("text.sort") as SortMode) || "default";
+if (!(sortMode in SORT_LABEL)) sortMode = "default";
+
+/** Re-order the fetched tree in place. The backend hands us dirs-first,
+ * name-ascending; "default" keeps that, except inside the daily-notes folder
+ * where date-shaped names (YYYY / MM / YYYY-MM-DD) show latest first. */
+function sortTree(entries: api.Entry[], inDaily: boolean) {
+  const dailyPath = `${root}/${config.daily_dir}`;
+  const dirs = entries.filter((e) => e.is_dir);
+  const files = entries.filter((e) => !e.is_dir);
+  const datish = (e: api.Entry) => /^\d[\d-]*$/.test(stem(e.name));
+  for (const group of [dirs, files]) {
+    if (sortMode === "za") group.reverse();
+    else if (sortMode === "newest") group.sort((a, b) => b.mtime - a.mtime);
+    else if (inDaily) group.sort((a, b) => (datish(a) && datish(b) ? b.name.localeCompare(a.name) : 0));
+  }
+  entries.length = 0;
+  entries.push(...dirs, ...files);
+  for (const dir of dirs) {
+    if (dir.children) sortTree(dir.children, inDaily || dir.path === dailyPath);
+  }
+}
+
+function cycleSort() {
+  const order: SortMode[] = ["default", "za", "newest"];
+  sortMode = order[(order.indexOf(sortMode) + 1) % order.length];
+  localStorage.setItem("text.sort", sortMode);
+  $("#btn-sort").title = SORT_LABEL[sortMode];
+  $("#btn-sort").classList.toggle("active-sort", sortMode !== "default");
+  void refreshTree();
+}
+
 let treeFingerprint = "";
 
 async function refreshTree() {
   if (!root) return;
   tree = await api.listTree(root);
+  sortTree(tree, false);
   flatten(tree);
   // Skip the DOM rebuild when nothing structural changed (autosaves trip the
   // fs watcher constantly); rebuilding mid-interaction eats mouse presses.
-  const fingerprint = JSON.stringify(tree);
+  // mtime is excluded — it changes on every save; a reorder it causes under
+  // "newest" still shows up as a position change.
+  const fingerprint = JSON.stringify(tree, (k, v) => (k === "mtime" ? undefined : v));
   if (fingerprint === treeFingerprint) return;
   treeFingerprint = fingerprint;
   renderTree();
@@ -352,17 +464,19 @@ async function refreshTree() {
 
 // ---------------------------------------------------------------- nav history
 
-const histBack: string[] = [];
-const histFwd: string[] = [];
-let navigating = false;
+// history is per tab, like a browser: each tab remembers where it has been,
+// and switching tabs doesn't record anything
 
-/** Push the file being left onto the back stack (unless this open *is* a
- * back/forward jump). */
+let navigating = false; // suppresses recordNav during back/fwd and tab switches
+
+/** Push the file being left onto the active tab's back stack (unless this
+ * open *is* a back/forward jump or a tab switch). */
 function recordNav(opening: string) {
   if (navigating || !currentPath || currentPath === opening) return;
-  histBack.push(currentPath);
-  if (histBack.length > 100) histBack.shift();
-  histFwd.length = 0;
+  const t = tab();
+  t.back.push(currentPath);
+  if (t.back.length > 100) t.back.shift();
+  t.fwd.length = 0;
 }
 
 /** Pop the nearest still-existing path; deleted/moved files are skipped. */
@@ -380,16 +494,316 @@ function navigate(from: string[], to: string[]) {
   void openFile(path).finally(() => (navigating = false));
 }
 
-const goBack = () => navigate(histBack, histFwd);
-const goForward = () => navigate(histFwd, histBack);
+const goBack = () => navigate(tab().back, tab().fwd);
+const goForward = () => navigate(tab().fwd, tab().back);
+
+// ---------------------------------------------------------------- tabs
+
+const tabName = (path: string) => {
+  const name = path.split("/").pop() ?? path;
+  return isNote(name) ? stem(name) : name;
+};
+
+function renderTabs() {
+  $("#tabs").replaceChildren(
+    ...tabs.map((t, i) => {
+      const el = document.createElement("div");
+      el.className = "tab" + (i === active ? " current" : "");
+      if (i === active && dirty) el.classList.add("dirty");
+      el.dataset.i = String(i);
+      if (t.path) el.title = rel(t.path);
+      const label = document.createElement("span");
+      label.className = "tab-label";
+      label.textContent = t.path ? tabName(t.path) : "new tab";
+      const close = document.createElement("button");
+      close.className = "tab-close";
+      close.textContent = "×";
+      close.title = "Close tab (Ctrl+W)";
+      close.addEventListener("mousedown", (e) => e.stopPropagation());
+      close.addEventListener("click", () => void closeTab(i));
+      el.append(label, close);
+      el.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        beginTabDrag(t, e); // arms a possible drag; the switch still happens
+        if (i !== active) void switchTab(i);
+      });
+      el.addEventListener("auxclick", (e) => {
+        if (e.button === 1) void closeTab(i);
+      });
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        tabContextMenu(e, i);
+      });
+      return el;
+    }),
+  );
+  persistTabs();
+}
+
+function persistTabs() {
+  if (!isMain) return;
+  localStorage.setItem("text.tabs", JSON.stringify(tabs.map((t) => t.path)));
+  localStorage.setItem("text.activeTab", String(active));
+}
+
+/** Keep the active tab's record in step with what's actually open. */
+function syncTab() {
+  const t = tab();
+  if (t.path !== currentPath) {
+    t.path = currentPath;
+    t.snap = undefined;
+  }
+  renderTabs();
+}
+
+/** Park the active tab's editor state before switching away from it. The
+ * snapshot keeps cursor, scroll, and undo history alive across switches. */
+async function stashActiveTab() {
+  const t = tab();
+  if (dirty) await save(); // a conflict leaves it dirty — the snap carries it
+  if (
+    currentPath &&
+    t.path === currentPath &&
+    !viewingImage &&
+    !viewingAudio &&
+    !viewingPdf
+  ) {
+    t.snap = { path: currentPath, mtime: currentMtime ?? -1, dirty, ...editor.snapshot() };
+  }
+}
+
+/** Restore a stashed snapshot if it still matches the file on disk (or holds
+ * unsaved edits, which always win — they're the freshest content). */
+async function tryRestoreSnap(t: Tab): Promise<boolean> {
+  const s = t.snap;
+  if (!s || !t.path || s.path !== t.path) return false;
+  const onDisk = await api.statMtime(t.path).catch(() => null);
+  if (!s.dirty && (onDisk === null || onDisk !== s.mtime)) return false;
+  hideIssue();
+  hideImageView();
+  hideAudioView();
+  hidePdfView();
+  editor.restoreSnapshot(s, t.path.split("/").pop()!);
+  currentPath = t.path;
+  currentMtime = onDisk;
+  dirty = s.dirty;
+  if (s.dirty) scheduleAutosave();
+  if (isTable(t.path) && tableMode) showTableView();
+  else hideTableView();
+  $("#welcome").style.display = "none";
+  rememberFile(t.path);
+  setCurrentRow(t.path);
+  updateStatus();
+  void refreshBacklinks();
+  editor.focus();
+  return true;
+}
+
+/** Make the active tab's content live: restore its snapshot or open from
+ * disk. Never records nav history. */
+async function activateTab() {
+  renderTabs();
+  const t = tab();
+  navigating = true;
+  try {
+    if (!t.path) {
+      showEmptyTab();
+    } else if (!(await tryRestoreSnap(t))) {
+      await openFile(t.path);
+      if (currentPath !== t.path) {
+        // the file is gone (deleted/moved while backgrounded) — empty the tab
+        t.path = null;
+        t.snap = undefined;
+        showEmptyTab();
+        renderTabs();
+      }
+    }
+  } finally {
+    navigating = false;
+  }
+}
+
+async function switchTab(i: number) {
+  if (i === active || !tabs[i]) return;
+  await stashActiveTab();
+  active = i;
+  await activateTab();
+}
+
+/** Open a new tab right of the active one, on `path` or empty. */
+async function newTab(path?: string) {
+  await stashActiveTab();
+  tabs.splice(active + 1, 0, { path: path ?? null, back: [], fwd: [] });
+  active++;
+  await activateTab();
+}
+
+async function closeTab(i: number) {
+  if (!tabs[i]) return;
+  // a failed/conflicted save keeps the tab open — closing would lose edits
+  if (i === active && dirty && !(await save()) && dirty) return;
+  tabs.splice(i, 1);
+  if (!tabs.length) {
+    // last tab: spawned windows close; the main window keeps an empty tab
+    if (!isMain) return void getCurrentWindow().close();
+    tabs.push({ path: null, back: [], fwd: [] });
+    active = 0;
+    return activateTab();
+  }
+  if (i < active) {
+    active--;
+    renderTabs();
+  } else if (i === active) {
+    active = Math.min(i, tabs.length - 1);
+    await activateTab();
+  } else {
+    renderTabs();
+  }
+}
+
+async function closeOtherTabs(i: number) {
+  const keep = tabs[i];
+  if (!keep) return;
+  const wasActive = tabs[active] === keep;
+  // discarding the active tab with a failed save would lose edits
+  if (!wasActive && dirty && !(await save()) && dirty) return;
+  tabs = [keep];
+  active = 0;
+  if (wasActive) renderTabs();
+  else await activateTab();
+}
+
+/** Move a tab into its own window (drag-out or the tab's context menu). */
+async function detachTab(i: number) {
+  const t = tabs[i];
+  if (!t || !root) return;
+  if (i === active && dirty && !(await save()) && dirty) return;
+  try {
+    await api.openWindow(root, t.path);
+  } catch (err) {
+    return showIssue(`new window failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  }
+  await closeTab(i);
+}
+
+function newWindow() {
+  if (!root) return;
+  api.openWindow(root, null).catch((err) => {
+    showIssue(`new window failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  });
+}
+
+/** Rewrite tab paths after `from` (file or folder) moved to `to`. */
+function remapTabs(from: string, to: string) {
+  const remap = (p: string | null) =>
+    p && (p === from || p.startsWith(from + "/")) ? to + p.slice(from.length) : p;
+  for (const t of tabs) {
+    t.path = remap(t.path);
+    if (t.snap) t.snap.path = remap(t.snap.path)!;
+  }
+  renderTabs();
+}
+
+function tabContextMenu(e: MouseEvent, i: number) {
+  const items: [string, () => void][] = [["close tab", () => void closeTab(i)]];
+  if (tabs.length > 1) items.push(["close other tabs", () => void closeOtherTabs(i)]);
+  items.push(["move to new window", () => void detachTab(i)]);
+  openCtxMenu(e, items);
+}
+
+/** Pointer-based tab drag: within the tab strip it reorders; released
+ * anywhere outside the window it detaches the tab into a new window. */
+function beginTabDrag(t: Tab, e: MouseEvent) {
+  const startX = e.clientX;
+  const startY = e.clientY;
+  let ghost: HTMLElement | null = null;
+  let dropAt: number | null = null;
+
+  const clearMarkers = () => {
+    document.querySelector(".tab.drop-before")?.classList.remove("drop-before");
+    $("#tabbar").classList.remove("drop-end");
+  };
+
+  // insertion index under the pointer, or null when off the tab strip
+  const indexAt = (x: number, y: number): number | null => {
+    const bar = $("#tabbar").getBoundingClientRect();
+    if (y < bar.top - 24 || y > bar.bottom + 24) return null;
+    for (const el of document.querySelectorAll<HTMLElement>("#tabs .tab")) {
+      const r = el.getBoundingClientRect();
+      if (x < r.left + r.width / 2) return Number(el.dataset.i);
+    }
+    return tabs.length;
+  };
+
+  const move = (ev: MouseEvent) => {
+    if (!ghost) {
+      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 6) return;
+      ghost = document.createElement("div");
+      ghost.id = "drag-ghost";
+      ghost.textContent = t.path ? tabName(t.path) : "new tab";
+      document.body.appendChild(ghost);
+      document.body.classList.add("tree-dragging");
+    }
+    ghost.style.left = `${ev.clientX + 12}px`;
+    ghost.style.top = `${ev.clientY + 8}px`;
+    clearMarkers();
+    dropAt = indexAt(ev.clientX, ev.clientY);
+    if (dropAt === null) return;
+    if (dropAt >= tabs.length) $("#tabbar").classList.add("drop-end");
+    else
+      document
+        .querySelector(`#tabs .tab[data-i="${dropAt}"]`)
+        ?.classList.add("drop-before");
+  };
+
+  const up = (ev: MouseEvent) => {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", up);
+    document.body.classList.remove("tree-dragging");
+    clearMarkers();
+    const dragged = !!ghost;
+    ghost?.remove();
+    if (!dragged) return;
+    const i = tabs.indexOf(t);
+    if (i < 0) return;
+    // mouse events keep arriving while the button is held, so coordinates
+    // outside the viewport mean the tab was dropped outside the window
+    const outside =
+      ev.clientX < 0 ||
+      ev.clientY < 0 ||
+      ev.clientX > window.innerWidth ||
+      ev.clientY > window.innerHeight;
+    if (outside) return void detachTab(i);
+    if (dropAt !== null) reorderTab(i, dropAt);
+  };
+
+  document.addEventListener("mousemove", move);
+  document.addEventListener("mouseup", up);
+}
+
+function reorderTab(from: number, to: number) {
+  if (to === from || to === from + 1) return; // dropping onto itself
+  const current = tabs[active];
+  const [moved] = tabs.splice(from, 1);
+  tabs.splice(to > from ? to - 1 : to, 0, moved);
+  active = tabs.indexOf(current);
+  renderTabs();
+}
 
 // ---------------------------------------------------------------- open/save
 
+/** Only the main window owns the cross-launch "last file" fallback. */
+function rememberFile(path: string) {
+  if (isMain) localStorage.setItem("text.lastFile", path);
+}
+
 async function openFile(path: string) {
   if (isViewableImage(path)) return openImage(path);
-  if (isExternalDoc(path)) return void openPath(path);
+  if (isAudioFile(path)) return openAudio(path);
+  if (isPdfFile(path)) return openPdf(path);
   if (currentPath && dirty) await save();
-  hideBanner();
+  hideIssue();
   try {
     const file = await api.readFile(path);
     recordNav(path);
@@ -397,49 +811,204 @@ async function openFile(path: string) {
     currentMtime = file.mtime;
     dirty = false;
     hideImageView();
+    hideAudioView();
+    hidePdfView();
     editor.openDoc(file.content, path.split("/").pop() ?? path);
     if (isTable(path) && tableMode) showTableView();
     else hideTableView();
     $("#welcome").style.display = "none";
-    localStorage.setItem("text.lastFile", path);
+    rememberFile(path);
     setCurrentRow(path);
+    syncTab();
     updateStatus();
     void refreshBacklinks();
     editor.focus();
   } catch (err) {
-    showBanner(String(err), [{ label: "ok", run: hideBanner }]);
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
 }
 
 async function openImage(path: string) {
-  if (currentPath && dirty && !viewingImage) await save();
-  hideBanner();
+  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf) await save();
+  hideIssue();
   try {
     const src = await loadImage(path);
     recordNav(path);
     currentPath = path;
-    currentMtime = null;
+    // tracked so watcher events that aren't real edits don't reload the view
+    currentMtime = await api.statMtime(path).catch(() => null);
     dirty = false;
     viewingImage = true;
     hideTableView();
-    imageBytes = dataUrlBytes(src);
+    hideAudioView();
+    hidePdfView();
+    resetImageTools();
     const img = $<HTMLImageElement>("#image-view img");
-    img.onload = updateStatus; // natural dimensions arrive async
     img.src = src;
     $("#image-view").hidden = false;
     $("#welcome").style.display = "none";
-    localStorage.setItem("text.lastFile", path);
+    rememberFile(path);
     setCurrentRow(path);
+    syncTab();
     updateStatus();
     void refreshBacklinks();
   } catch (err) {
-    showBanner(String(err), [{ label: "ok", run: hideBanner }]);
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
 }
 
 function hideImageView() {
   viewingImage = false;
   $("#image-view").hidden = true;
+}
+
+async function openAudio(path: string) {
+  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf) await save();
+  hideIssue();
+  try {
+    const mtime = await api.statMtime(path); // also confirms the file exists
+    recordNav(path);
+    currentPath = path;
+    currentMtime = mtime;
+    dirty = false;
+    viewingAudio = true;
+    hideTableView();
+    hideImageView();
+    hidePdfView();
+    $("#audio-name").textContent = path.split("/").pop() ?? path;
+    const audio = $<HTMLAudioElement>("#audio-view audio");
+    // asset protocol streams from disk with range support — data URLs choke
+    // WebKitGTK's media player
+    audio.src = convertFileSrc(path);
+    $("#audio-view").hidden = false;
+    $("#welcome").style.display = "none";
+    rememberFile(path);
+    setCurrentRow(path);
+    syncTab();
+    updateStatus();
+    void refreshBacklinks();
+  } catch (err) {
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
+  }
+}
+
+function hideAudioView() {
+  viewingAudio = false;
+  const audio = $<HTMLAudioElement>("#audio-view audio");
+  audio.pause();
+  $("#audio-view").hidden = true;
+}
+
+async function openPdf(path: string) {
+  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf) await save();
+  hideIssue();
+  try {
+    const mtime = await api.statMtime(path); // also confirms the file exists
+    await openPdfDoc(path);
+    recordNav(path);
+    currentPath = path;
+    currentMtime = mtime;
+    dirty = false;
+    viewingPdf = true;
+    hideTableView();
+    hideImageView();
+    hideAudioView();
+    $("#welcome").style.display = "none";
+    rememberFile(path);
+    setCurrentRow(path);
+    syncTab();
+    updateStatus();
+    void refreshBacklinks();
+  } catch (err) {
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
+  }
+}
+
+function hidePdfView() {
+  viewingPdf = false;
+  closePdfDoc();
+}
+
+// ---------------------------------------------------------------- image tools
+
+let imgRotation = 0; // degrees, multiples of 90
+let imgScale = 1;
+
+function imageEdited() {
+  return imgRotation % 360 !== 0 || imgScale !== 1;
+}
+
+function resetImageTools() {
+  imgRotation = 0;
+  imgScale = 1;
+  applyImageTools();
+}
+
+function applyImageTools() {
+  const img = $<HTMLImageElement>("#image-view img");
+  img.style.transform =
+    imgRotation || imgScale !== 1 ? `rotate(${imgRotation}deg) scale(${imgScale})` : "";
+  $("#img-scale").textContent = `${Math.round(imgScale * 100)}%`;
+  const edited = imageEdited();
+  $("#img-reset").hidden = !edited;
+  $("#img-save-copy").hidden = !edited;
+  // canvas can only re-encode png/jpeg faithfully — other formats get a copy
+  const overwritable = /\.(png|jpe?g)$/i.test(currentPath ?? "");
+  $("#img-overwrite").hidden = !edited || !overwritable;
+}
+
+/** Render the current rotation/scale to base64 in the file's own format
+ * (or PNG for formats canvas can't encode). Returns [base64, extension]. */
+function renderEditedImage(): [string, string] {
+  const img = $<HTMLImageElement>("#image-view img");
+  const w = Math.max(1, Math.round(img.naturalWidth * imgScale));
+  const h = Math.max(1, Math.round(img.naturalHeight * imgScale));
+  const swap = imgRotation % 180 !== 0;
+  const canvas = document.createElement("canvas");
+  canvas.width = swap ? h : w;
+  canvas.height = swap ? w : h;
+  const ctx = canvas.getContext("2d")!;
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((imgRotation * Math.PI) / 180);
+  ctx.drawImage(img, -w / 2, -h / 2, w, h);
+  const jpeg = /\.jpe?g$/i.test(currentPath ?? "");
+  const url = canvas.toDataURL(jpeg ? "image/jpeg" : "image/png", 0.92);
+  return [url.split(",", 2)[1], jpeg ? "jpg" : "png"];
+}
+
+async function saveImageCopy() {
+  if (!currentPath) return;
+  try {
+    const [b64, ext] = renderEditedImage();
+    const name = currentPath.split("/").pop()!;
+    const saved = await api.writeBase64(
+      parentOf(currentPath),
+      `${stem(name)} edited.${ext}`,
+      b64,
+    );
+    await refreshTree();
+    await openImage(saved);
+  } catch (err) {
+    showIssue(`save failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  }
+}
+
+async function overwriteImage() {
+  if (!currentPath) return;
+  const path = currentPath;
+  const ok = await confirmBox(
+    `overwrite "${path.split("/").pop()}" with the edited version?`,
+    "Overwrite",
+  );
+  if (!ok) return;
+  try {
+    const [b64] = renderEditedImage();
+    await api.overwriteBase64(path, b64);
+    invalidateImage(path);
+    await openImage(path);
+  } catch (err) {
+    showIssue(`overwrite failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  }
 }
 
 // ---------------------------------------------------------------- table view
@@ -501,7 +1070,6 @@ function renderTableView() {
     note.textContent = `showing the first ${TABLE_MAX_ROWS} of ${rows.length} rows — switch to text for the rest`;
     view.prepend(note);
   }
-  tableDims = `${rows.length} rows · ${cols} cols`;
 }
 
 function showTableView() {
@@ -514,13 +1082,13 @@ function hideTableView() {
 }
 
 async function save(): Promise<boolean> {
-  if (!currentPath || saving || viewingImage) return true;
+  if (!currentPath || saving || viewingImage || viewingAudio || viewingPdf) return true;
   saving = true;
   try {
     const result = await api.writeFile(currentPath, editor.text, currentMtime);
     if (result.conflict) {
       const path = currentPath;
-      showBanner("this file changed on disk while you were editing it", [
+      showIssue("this file changed on disk while you were editing it", [
         {
           label: "overwrite with mine",
           run: () => {
@@ -544,7 +1112,7 @@ async function save(): Promise<boolean> {
     updateStatus();
     return true;
   } catch (err) {
-    showBanner(`save failed: ${err}`, [{ label: "ok", run: hideBanner }]);
+    showIssue(`save failed: ${err}`, [{ label: "ok", run: hideIssue }]);
     return false;
   } finally {
     saving = false;
@@ -562,16 +1130,22 @@ async function onFsChanged(paths: string[]) {
   await refreshTree();
   for (const p of paths) invalidateImage(p);
   if (!currentPath || !paths.includes(currentPath)) return;
-  if (viewingImage) {
+  if (viewingImage || viewingAudio || viewingPdf) {
+    const kind = viewingAudio ? "audio file" : viewingPdf ? "PDF" : "image";
+    const reopen = viewingAudio ? openAudio : viewingPdf ? openPdf : openImage;
+    let onDisk: number;
     try {
-      await api.statMtime(currentPath);
+      onDisk = await api.statMtime(currentPath);
     } catch {
-      showBanner("this image was deleted or moved on disk", [
+      showIssue(`this ${kind} was deleted or moved on disk`, [
         { label: "close it", run: closeCurrent },
       ]);
       return;
     }
-    await openImage(currentPath);
+    // only a real content change reloads the view — spurious events would
+    // reset the image tools / restart playback / lose the reading position
+    if (currentMtime !== null && onDisk === currentMtime) return;
+    await reopen(currentPath);
     return;
   }
   let onDisk: number;
@@ -579,7 +1153,7 @@ async function onFsChanged(paths: string[]) {
     onDisk = await api.statMtime(currentPath);
   } catch {
     // the open file was deleted or moved externally
-    showBanner("this file was deleted or moved on disk", [
+    showIssue("this file was deleted or moved on disk", [
       { label: "keep my copy (re-save)", run: () => ((currentMtime = null), void save()) },
       { label: "close it", run: closeCurrent },
     ]);
@@ -593,7 +1167,7 @@ async function onFsChanged(paths: string[]) {
     updateStatus();
   } else {
     const path = currentPath;
-    showBanner("this file changed on disk and you have unsaved edits", [
+    showIssue("this file changed on disk and you have unsaved edits", [
       {
         label: "keep mine (overwrites)",
         run: () => ((currentMtime = null), void save()),
@@ -609,16 +1183,28 @@ async function onFsChanged(paths: string[]) {
   }
 }
 
-function closeCurrent() {
+/** Clear the live views without touching the tab record. */
+function showEmptyTab() {
   currentPath = null;
   currentMtime = null;
   dirty = false;
   hideImageView();
+  hideAudioView();
+  hidePdfView();
   hideTableView();
   editor.openDoc("", "untitled.md");
   $("#welcome").style.display = "";
   setCurrentRow(null);
   updateStatus();
+}
+
+/** Close the open file: the active tab becomes an empty tab. */
+function closeCurrent() {
+  showEmptyTab();
+  const t = tab();
+  t.path = null;
+  t.snap = undefined;
+  renderTabs();
 }
 
 // ---------------------------------------------------------------- create/rename/delete
@@ -634,7 +1220,7 @@ async function newNote(dir?: string) {
     await refreshTree();
     await openFile(path);
   } catch (err) {
-    showBanner(String(err), [{ label: "ok", run: hideBanner }]);
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
 }
 
@@ -653,14 +1239,16 @@ async function renameEntry(entry: api.Entry) {
   const to = parent + name;
   try {
     await api.renamePath(entry.path, to);
-    if (currentPath === entry.path) {
-      currentPath = to;
-      localStorage.setItem("text.lastFile", to);
+    if (currentPath && (currentPath === entry.path || currentPath.startsWith(entry.path + "/"))) {
+      currentPath = to + currentPath.slice(entry.path.length);
+      rememberFile(currentPath);
     }
+    remapTabs(entry.path, to);
     await refreshTree();
+    setCurrentRow(currentPath);
     updateStatus();
   } catch (err) {
-    showBanner(String(err), [{ label: "ok", run: hideBanner }]);
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
 }
 
@@ -744,7 +1332,13 @@ async function resolveImage(target: string): Promise<string | null> {
   }
   const base = t.split("/").pop()!.toLowerCase();
   const hit = allFiles.find((f) => f.path.split("/").pop()!.toLowerCase() === base);
-  return hit ? loadImage(hit.path).catch(() => null) : null;
+  if (hit) return loadImage(hit.path).catch(() => null);
+  // not in the index (deep tree, fresh file, excluded folder) — try disk anyway
+  for (const c of candidates) {
+    const src = await loadImage(normalizePath(c)).catch(() => null);
+    if (src) return src;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- image import
@@ -780,7 +1374,7 @@ async function importImageBlob(blob: File): Promise<string | null> {
     await refreshTree();
     return path.split("/").pop()!;
   } catch (err) {
-    showBanner(`image paste failed: ${err}`, [{ label: "ok", run: hideBanner }]);
+    showIssue(`image paste failed: ${err}`, [{ label: "ok", run: hideIssue }]);
     return null;
   }
 }
@@ -804,7 +1398,7 @@ async function handleFileDrop(paths: string[], position: { x: number; y: number 
         editor.insertAt(`![[${path.split("/").pop()!}]]\n`, { x, y });
       }
     } catch (err) {
-      showBanner(`import failed: ${err}`, [{ label: "ok", run: hideBanner }]);
+      showIssue(`import failed: ${err}`, [{ label: "ok", run: hideIssue }]);
     }
   }
 }
@@ -883,8 +1477,10 @@ async function refreshBacklinks() {
 
 async function openDaily() {
   if (!root) return;
-  const dir = `${root}/${config.daily_dir}`;
-  const path = `${dir}/${today()}.md`;
+  // daily/YYYY/MM/YYYY-MM-DD.md (the tree shows latest year/month first)
+  const date = today();
+  const dir = `${root}/${config.daily_dir}/${date.slice(0, 4)}/${date.slice(5, 7)}`;
+  const path = `${dir}/${date}.md`;
   try {
     await api.createDir(dir);
     await api.createFile(path);
@@ -901,23 +1497,85 @@ async function openDaily() {
 
 async function pickTheme() {
   themes = await api.listThemes();
-  const current = themes.find((t) => t.id === config.theme);
   const chosen = await pick(
     themes.map((t) => ({ label: t.name, detail: t.id, value: t.id })),
+    { placeholder: "theme…" },
+  );
+  if (!chosen) return;
+  const theme = themes.find((t) => t.id === chosen.value);
+  if (theme) applyTheme(theme);
+  config.theme = chosen.value;
+  await api.saveConfig(config);
+}
+
+// ---------------------------------------------------------------- editor font
+
+/** A tasteful shortlist of typing fonts. Each entry is a stack that degrades
+ * gracefully when the first choice isn't installed; `probe` is the family
+ * name used to detect availability for the picker annotation. */
+const EDITOR_FONTS: { label: string; kind: string; stack: string; probe?: string }[] = [
+  { label: "theme default", kind: "", stack: "" },
+  { label: "system monospace", kind: "mono", stack: "ui-monospace, monospace" },
+  { label: "JetBrains Mono", kind: "mono", stack: "'JetBrains Mono', ui-monospace, monospace" },
+  { label: "IBM Plex Mono", kind: "mono", stack: "'IBM Plex Mono', ui-monospace, monospace" },
+  { label: "Iosevka", kind: "mono", stack: "'Iosevka', 'Iosevka Fixed', ui-monospace, monospace" },
+  { label: "Fira Code", kind: "mono", stack: "'Fira Code', ui-monospace, monospace" },
+  { label: "system sans", kind: "sans", stack: "system-ui, sans-serif" },
+  { label: "Inter", kind: "sans", stack: "'Inter', 'Inter Variable', system-ui, sans-serif" },
+  { label: "IBM Plex Sans", kind: "sans", stack: "'IBM Plex Sans', system-ui, sans-serif" },
+  {
+    label: "Atkinson Hyperlegible",
+    kind: "sans",
+    stack: "'Atkinson Hyperlegible', 'Atkinson Hyperlegible Next', system-ui, sans-serif",
+  },
+  { label: "Cantarell", kind: "sans", stack: "'Cantarell', system-ui, sans-serif" },
+  {
+    label: "Charter",
+    kind: "serif",
+    stack: "'Charter', 'Bitstream Charter', 'Georgia', 'Liberation Serif', serif",
+    probe: "Bitstream Charter",
+  },
+  {
+    label: "Source Serif",
+    kind: "serif",
+    stack: "'Source Serif 4', 'Source Serif Pro', 'Georgia', 'Liberation Serif', serif",
+    probe: "Source Serif 4",
+  },
+  {
+    label: "Literata",
+    kind: "serif",
+    stack: "'Literata', 'Charter', 'Bitstream Charter', 'Liberation Serif', serif",
+  },
+];
+
+async function pickEditorFont() {
+  const detail = (f: (typeof EDITOR_FONTS)[number]) => {
+    if (!f.kind) return "follows the theme";
+    if (f.label.startsWith("system")) return f.kind;
+    const have = document.fonts.check(`16px "${f.probe ?? f.label}"`);
+    return have ? f.kind : `${f.kind} · not installed, uses fallback`;
+  };
+  const before = config.editor_font;
+  const chosen = await pick(
+    EDITOR_FONTS.map((f) => ({ label: f.label, detail: detail(f), value: f.stack })),
     {
-      placeholder: "theme…",
-      onHighlight: (item) => {
-        const theme = themes.find((t) => t.id === item?.value);
-        if (theme) applyTheme(theme);
-      },
+      placeholder: "editor font…",
+      // live preview while arrowing through the list
+      onHighlight: (item) => setEditorFont(item ? item.value : before),
     },
   );
-  if (chosen) {
-    config.theme = chosen.value;
-    await api.saveConfig(config);
-  } else if (current) {
-    applyTheme(current);
-  }
+  setEditorFont(chosen ? chosen.value : before);
+  if (!chosen) return;
+  config.editor_font = chosen.value;
+  await api.saveConfig(config);
+}
+
+// ---------------------------------------------------------------- sharing
+
+/** Share the whole notes folder; individual folders share via the tree's
+ * right-click menu. */
+function shareRoot() {
+  if (root) openShareDialog(root);
 }
 
 let configFilePath = "";
@@ -944,8 +1602,10 @@ function bumpUiFont(delta: number) {
 
 async function applyConfigFromDisk() {
   config = await api.loadConfig();
+  rebindKeys();
   setFontSize(config.font_size);
   setUiFontSize(config.ui_font_size);
+  setEditorFont(config.editor_font);
   editor.setVim(config.vim_mode);
   $("#sidebar").style.width = `${config.sidebar_width}px`;
   themes = await api.listThemes();
@@ -960,25 +1620,198 @@ async function openConfig() {
 
 // ---------------------------------------------------------------- root folder
 
+/** Point the window at a notes folder. Callers decide what to open next
+ * (session restore, a handed-over file, or the first note). */
 async function openRoot(path: string) {
+  const switching = root !== null && root !== path;
   root = path;
   $("#folder-name").textContent = path.split("/").pop() ?? path;
+  if (switching) {
+    tabs = [{ path: null, back: [], fwd: [] }];
+    active = 0;
+    closeCurrent();
+  }
   await refreshTree();
   await api.watchRoot(path);
-  if (config.root !== path) {
+  const recents = [path, ...config.recent_roots.filter((r) => r !== path)].slice(0, 10);
+  if (config.root !== path || recents.join("\n") !== config.recent_roots.join("\n")) {
     config.root = path;
+    config.recent_roots = recents;
     await api.saveConfig(config);
   }
-  const last = localStorage.getItem("text.lastFile");
-  if (last && allFiles.some((f) => f.path === last)) await openFile(last);
-  else if (notes.length) await openFile(notes[0].path);
+}
+
+async function openFirstFile() {
+  if (notes.length) await openFile(notes[0].path);
   else if (allFiles.length) await openFile(allFiles[0].path);
-  else $("#welcome").style.display = "";
+}
+
+/** Re-open the main window's tabs from the previous session. */
+async function restoreSession() {
+  let saved: (string | null)[] = [];
+  try {
+    saved = JSON.parse(localStorage.getItem("text.tabs") ?? "[]");
+  } catch {
+    // unreadable — start fresh
+  }
+  const exists = (p: string) => allFiles.some((f) => f.path === p);
+  let paths = saved.filter((p): p is string => !!p && exists(p));
+  if (!paths.length) {
+    const last = localStorage.getItem("text.lastFile");
+    paths = last && exists(last) ? [last] : [];
+  }
+  if (!paths.length) return openFirstFile();
+  tabs = paths.map((p) => ({ path: p, back: [], fwd: [] }));
+  active = Math.min(
+    Math.max(Number(localStorage.getItem("text.activeTab")) || 0, 0),
+    tabs.length - 1,
+  );
+  await activateTab();
 }
 
 async function chooseFolder() {
   const chosen = await openDialog({ directory: true, title: "Open notes folder" });
-  if (typeof chosen === "string") await openRoot(chosen);
+  if (typeof chosen !== "string") return;
+  await openRoot(chosen);
+  if (!currentPath) await openFirstFile();
+}
+
+/** Quick switcher over recently opened folders (personal / work / projects). */
+async function switchFolder() {
+  const items = config.recent_roots.map((r) => ({
+    label: r.split("/").pop() || r,
+    detail: r === root ? `${r} (current)` : r,
+    value: r,
+  }));
+  items.push({ label: "browse…", detail: "pick another folder", value: "" });
+  const chosen = await pick(items, { placeholder: "switch folder…" });
+  if (!chosen) return;
+  if (!chosen.value) return void chooseFolder();
+  if (chosen.value !== root) {
+    await openRoot(chosen.value);
+    if (!currentPath) await openFirstFile();
+  }
+}
+
+// ---------------------------------------------------------------- keybindings
+
+/** App-level actions, their default combos, and help descriptions. The
+ * effective combo comes from config.toml's [keys] (documented there). */
+const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = [
+  { id: "quick_switch", combo: "ctrl+p", what: "quick switch / new note", run: () => void quickSwitch() },
+  { id: "new_note", combo: "ctrl+n", what: "new note", run: () => void newNote() },
+  { id: "daily_note", combo: "ctrl+t", what: "today's daily note", run: () => void openDaily() },
+  { id: "open_folder", combo: "ctrl+o", what: "open folder…", run: () => void chooseFolder() },
+  { id: "switch_folder", combo: "ctrl+shift+o", what: "switch between recent folders", run: () => void switchFolder() },
+  { id: "search", combo: "ctrl+shift+f", what: "search everywhere", run: () => showPane("search") },
+  { id: "backlinks", combo: "ctrl+shift+b", what: "backlinks", run: () => showPane("links") },
+  { id: "theme", combo: "ctrl+shift+t", what: "switch theme", run: () => void pickTheme() },
+  { id: "editor_font", combo: "ctrl+shift+e", what: "editor font", run: () => void pickEditorFont() },
+  { id: "share", combo: "ctrl+shift+s", what: "share folder as a website", run: shareRoot },
+  { id: "config", combo: "ctrl+,", what: "edit config (shortcuts rebindable there)", run: () => void openConfig() },
+  { id: "shortcuts", combo: "ctrl+/", what: "this list", run: () => showShortcuts() },
+  { id: "toggle_sidebar", combo: "ctrl+\\", what: "toggle sidebar", run: () => toggleSidebar() },
+  { id: "new_tab", combo: "ctrl+shift+n", what: "new tab", run: () => void newTab() },
+  { id: "close_tab", combo: "ctrl+w", what: "close tab", run: () => void closeTab(active) },
+  { id: "next_tab", combo: "ctrl+tab", what: "next tab", run: () => void switchTab((active + 1) % tabs.length) },
+  { id: "prev_tab", combo: "ctrl+shift+tab", what: "previous tab", run: () => void switchTab((active + tabs.length - 1) % tabs.length) },
+  { id: "new_window", combo: "ctrl+alt+n", what: "new window", run: newWindow },
+];
+
+/** Normalize "Ctrl + Shift+F" → "ctrl+shift+f" with canonical modifier order. */
+function normalizeCombo(binding: string): string | null {
+  let key = "";
+  const mods = { ctrl: false, shift: false, alt: false };
+  for (const part of binding.toLowerCase().split("+")) {
+    const p = part.trim();
+    if (!p) continue;
+    if (p === "ctrl" || p === "cmd" || p === "meta" || p === "mod") mods.ctrl = true;
+    else if (p === "shift") mods.shift = true;
+    else if (p === "alt") mods.alt = true;
+    else key = p;
+  }
+  if (binding.endsWith("+") && !key) key = "+"; // the literal plus key
+  if (!key) return null;
+  return `${mods.ctrl ? "ctrl+" : ""}${mods.shift ? "shift+" : ""}${mods.alt ? "alt+" : ""}${key}`;
+}
+
+const effectiveCombo = (a: (typeof ACTIONS)[number]) =>
+  normalizeCombo(config?.keys?.[a.id] ?? a.combo) ?? normalizeCombo(a.combo)!;
+
+let boundKeys = new Map<string, () => void>();
+
+function rebindKeys() {
+  boundKeys = new Map(ACTIONS.map((a) => [effectiveCombo(a), a.run]));
+}
+
+const prettyCombo = (combo: string) =>
+  combo
+    .split("+")
+    .map((p) => (p.length === 1 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1)))
+    .join("+");
+
+// ---------------------------------------------------------------- shortcuts help
+
+const SHORTCUTS: [string, [string, string][]][] = [
+  [
+    "editing",
+    [
+      ["Ctrl+S", "save (autosave is on anyway)"],
+      ["Ctrl+B", "bold"],
+      ["Ctrl+I", "italic"],
+      ["Ctrl+Shift+X", "strikethrough"],
+      ["Ctrl+K", "insert markdown link"],
+      ["Ctrl+1 … Ctrl+6", "heading level 1–6 (repeat to clear)"],
+      ["Ctrl+F", "find in note"],
+      ["click a [ ]", "toggle checkbox"],
+    ],
+  ],
+  [
+    "navigation",
+    [
+      ["Alt+← / Alt+→", "back / forward through opened files"],
+      ["Ctrl+Enter", "open wikilink under cursor"],
+      ["Ctrl+click", "follow wikilink, or open URL in browser"],
+    ],
+  ],
+  [
+    "view",
+    [
+      ["Ctrl+= / Ctrl+-", "editor font size"],
+      ["Ctrl+Shift+= / Ctrl+Shift+-", "UI font size"],
+      ["Ctrl+0", "reset font sizes"],
+    ],
+  ],
+];
+
+function showShortcuts() {
+  // the app section reflects the live [keys] config; the rest is fixed
+  const app: [string, string][] = ACTIONS.map((a) => [prettyCombo(effectiveCombo(a)), a.what]);
+  infoBox((box) => {
+    const caption = document.createElement("div");
+    caption.className = "modal-caption";
+    caption.textContent = "keyboard shortcuts";
+    const grid = document.createElement("div");
+    grid.className = "keys-grid";
+    const sections: [string, [string, string][]][] = [
+      ["app (rebindable in config)", app],
+      ...SHORTCUTS,
+    ];
+    for (const [section, keys] of sections) {
+      const head = document.createElement("div");
+      head.className = "keys-section";
+      head.textContent = section;
+      grid.appendChild(head);
+      for (const [combo, what] of keys) {
+        const kbd = document.createElement("kbd");
+        kbd.textContent = combo;
+        const desc = document.createElement("span");
+        desc.textContent = what;
+        grid.append(kbd, desc);
+      }
+    }
+    box.append(caption, grid);
+  });
 }
 
 // ---------------------------------------------------------------- keyboard
@@ -991,40 +1824,34 @@ function onKeydown(e: KeyboardEvent) {
     if (e.key === "ArrowLeft") return (e.preventDefault(), goBack());
     if (e.key === "ArrowRight") return (e.preventDefault(), goForward());
   }
-  if (!mod) {
+  if (!mod && !e.altKey) {
     if (e.key === "Escape") closeModal();
     return;
   }
-  const key = e.key.toLowerCase();
   const run = (fn: () => void) => {
     e.preventDefault();
     fn();
   };
-  // font size: Ctrl+= / Ctrl+- for the editor, Ctrl+Shift+= / Ctrl+Shift+-
-  // for the UI (sidebar, status bar); Ctrl+0 resets both. Matched on e.code
-  // so they work regardless of keyboard layout and shift state.
-  if (e.code === "Equal" || e.code === "Minus" || e.code === "NumpadAdd" || e.code === "NumpadSubtract") {
+  // font size (fixed): Ctrl+= / Ctrl+- for the editor, Ctrl+Shift+= /
+  // Ctrl+Shift+- for the UI (sidebar, dialogs); Ctrl+0 resets both.
+  // Matched on e.code so they work regardless of layout and shift state.
+  if (mod && (e.code === "Equal" || e.code === "Minus" || e.code === "NumpadAdd" || e.code === "NumpadSubtract")) {
     const delta = e.code === "Equal" || e.code === "NumpadAdd" ? 1 : -1;
     return run(() => (e.shiftKey ? bumpUiFont(delta) : bumpEditorFont(delta)));
   }
-  if (e.code === "Digit0" && !e.shiftKey) {
+  if (mod && e.code === "Digit0" && !e.shiftKey) {
     return run(() => {
       bumpEditorFont(15 - config.font_size);
       bumpUiFont(13 - config.ui_font_size);
     });
   }
-  if (e.shiftKey) {
-    if (key === "f") return run(() => showPane("search"));
-    if (key === "b") return run(() => showPane("links"));
-    if (key === "t") return run(() => void pickTheme());
-    return;
-  }
-  if (key === "p") return run(() => void quickSwitch());
-  if (key === "n") return run(() => void newNote());
-  if (key === "t") return run(() => void openDaily());
-  if (key === ",") return run(() => void openConfig());
-  if (key === "o") return run(() => void chooseFolder());
-  if (key === "\\") return run(toggleSidebar);
+  // configurable app shortcuts — the editor keeps anything it already handled
+  if (e.defaultPrevented) return;
+  const combo =
+    `${mod ? "ctrl+" : ""}${e.shiftKey ? "shift+" : ""}${e.altKey ? "alt+" : ""}` +
+    e.key.toLowerCase();
+  const action = boundKeys.get(combo);
+  if (action) run(action);
 }
 
 function toggleSidebar() {
@@ -1074,6 +1901,7 @@ async function init() {
     onSave: () => void save(),
     getNotes: () => notes,
     openWikilink,
+    openExternal: (url) => void openUrl(url),
     resolveImage,
     importImageBlob,
     onNavBack: goBack,
@@ -1082,10 +1910,60 @@ async function init() {
 
   await applyConfigFromDisk();
 
+  const appWindow = getCurrentWindow();
+  $("#tb-min").addEventListener("click", () => void appWindow.minimize());
+  $("#tb-max").addEventListener("click", () => void appWindow.toggleMaximize());
+  $("#tb-close").addEventListener("click", () => void appWindow.close());
+
+  // edge/corner resize grips (no native decorations); hidden while maximized
+  for (const grip of document.querySelectorAll<HTMLElement>(".grip")) {
+    grip.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      void appWindow.startResizeDragging(
+        grip.dataset.dir as Parameters<typeof appWindow.startResizeDragging>[0],
+      );
+    });
+  }
+  const syncMaximized = async () =>
+    document.body.classList.toggle("maximized", await appWindow.isMaximized());
+  void appWindow.onResized(() => void syncMaximized());
+  void syncMaximized();
+  // flush unsaved edits before the window goes away (autosave is debounced)
+  void appWindow.onCloseRequested(async (event) => {
+    if (!dirty) return;
+    event.preventDefault();
+    await save();
+    void appWindow.destroy();
+  });
+
   $("#btn-open-folder").addEventListener("click", () => void chooseFolder());
-  $("#folder-name").addEventListener("click", () => void chooseFolder());
+  $("#folder-name").addEventListener("click", () => void switchFolder());
   $("#btn-new-note").addEventListener("click", () => void newNote());
   $("#btn-new-folder").addEventListener("click", () => void newFolder());
+  $("#btn-sort").title = SORT_LABEL[sortMode];
+  $("#btn-sort").classList.toggle("active-sort", sortMode !== "default");
+  $("#btn-sort").addEventListener("click", cycleSort);
+
+  $("#img-rot-l").addEventListener("click", () => {
+    imgRotation = (imgRotation + 270) % 360;
+    applyImageTools();
+  });
+  $("#img-rot-r").addEventListener("click", () => {
+    imgRotation = (imgRotation + 90) % 360;
+    applyImageTools();
+  });
+  $("#img-shrink").addEventListener("click", () => {
+    imgScale = Math.max(0.1, Math.round((imgScale - 0.1) * 10) / 10);
+    applyImageTools();
+  });
+  $("#img-grow").addEventListener("click", () => {
+    imgScale = Math.min(4, Math.round((imgScale + 0.1) * 10) / 10);
+    applyImageTools();
+  });
+  $("#img-reset").addEventListener("click", resetImageTools);
+  $("#img-save-copy").addEventListener("click", () => void saveImageCopy());
+  $("#img-overwrite").addEventListener("click", () => void overwriteImage());
   $("#btn-collapse").addEventListener("click", () => {
     expanded.clear();
     localStorage.setItem("text.expanded", "[]");
@@ -1098,8 +1976,9 @@ async function init() {
     else (hideTableView(), editor.focus());
     updateStatus();
   });
+  $("#tab-new").addEventListener("click", () => void newTab());
   $("#btn-daily").addEventListener("click", () => void openDaily());
-  $("#btn-theme").addEventListener("click", () => void pickTheme());
+  $("#btn-share").addEventListener("click", shareRoot);
   $("#btn-config").addEventListener("click", () => void openConfig());
   $("#btn-config").addEventListener("contextmenu", (e) => {
     e.preventDefault();
@@ -1114,6 +1993,7 @@ async function init() {
   });
   window.addEventListener("keydown", onKeydown);
   initResizer();
+  initPdfView((path) => void openPath(path));
 
   await listen<string[]>("fs:changed", (event) => void onFsChanged(event.payload));
   await getCurrentWebview().onDragDropEvent((event) => {
@@ -1122,13 +2002,26 @@ async function init() {
     }
   });
 
-  if (config.root) {
+  renderTabs();
+
+  // a spawned window (new-window / detached tab) gets its root and file
+  // handed over by the backend; the main window restores its session
+  const params = isMain ? null : await api.windowInitParams().catch(() => null);
+  const startRoot = params?.root ?? config.root;
+  if (startRoot) {
     try {
-      await openRoot(config.root);
+      await openRoot(startRoot);
+      if (isMain) await restoreSession();
+      else if (params?.file) await openFile(params.file);
+      else await openFirstFile();
     } catch {
       config.root = null;
     }
   }
+
+  // expired share links get taken down in the background; failures (offline,
+  // gh signed out) are silent and retried next launch
+  if (isMain) void api.cleanupShares().catch(() => {});
 }
 
 window.addEventListener("DOMContentLoaded", () => void init());

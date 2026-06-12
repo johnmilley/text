@@ -12,11 +12,11 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { LanguageDescription } from "@codemirror/language";
 import { vim } from "@replit/codemirror-vim";
-import { baseHighlighting, markdownStyling, wikilinkAt } from "./mdstyle";
+import { baseHighlighting, markdownStyling, toggleCheckboxAt, urlAt, wikilinkAt } from "./mdstyle";
 import { imageEmbeds, type ImageResolver } from "./images";
 
 export interface NoteRef {
@@ -30,6 +30,8 @@ export interface EditorCallbacks {
   onSave: () => void;
   getNotes: () => NoteRef[];
   openWikilink: (target: string) => void;
+  /** Open an http(s) URL in the system browser. */
+  openExternal: (url: string) => void;
   resolveImage: ImageResolver;
   /** Save a pasted image; resolves to the file name to embed, or null. */
   importImageBlob: (blob: File) => Promise<string | null>;
@@ -161,6 +163,29 @@ function insertLink(view: EditorView): boolean {
   return true;
 }
 
+/** Set the selected lines to ATX heading `level`; same level toggles off. */
+function setHeading(level: number) {
+  return (view: EditorView): boolean => {
+    const { state } = view;
+    const changes: { from: number; to: number; insert: string }[] = [];
+    const seen = new Set<number>();
+    for (const range of state.selection.ranges) {
+      const last = state.doc.lineAt(range.to).number;
+      for (let n = state.doc.lineAt(range.from).number; n <= last; n++) {
+        if (seen.has(n)) continue;
+        seen.add(n);
+        const line = state.doc.line(n);
+        if (!line.text && seen.size > 1) continue; // skip blanks in multi-line selections
+        const m = /^(#{1,6})\s+/.exec(line.text);
+        const insert = m && m[1].length === level ? "" : "#".repeat(level) + " ";
+        changes.push({ from: line.from, to: line.from + (m?.[0].length ?? 0), insert });
+      }
+    }
+    view.dispatch({ changes });
+    return true;
+  };
+}
+
 export class Editor {
   view: EditorView;
   private lang = new Compartment();
@@ -201,7 +226,12 @@ export class Editor {
         },
         { key: "Mod-b", run: toggleWrap("**") },
         { key: "Mod-i", run: toggleWrap("*") },
+        { key: "Mod-Shift-x", run: (view) => this.markdownish && toggleWrap("~~")(view) },
         { key: "Mod-k", run: (view) => this.markdownish && insertLink(view) },
+        ...[1, 2, 3, 4, 5, 6].map((level) => ({
+          key: `Mod-${level}`,
+          run: (view: EditorView) => this.markdownish && setHeading(level)(view),
+        })),
         // shadow defaultKeymap's Alt-Arrow cursor motion — back/forward nav
         { key: "Alt-ArrowLeft", run: () => (cbs.onNavBack(), true) },
         { key: "Alt-ArrowRight", run: () => (cbs.onNavForward(), true) },
@@ -221,14 +251,33 @@ export class Editor {
       ]),
       EditorView.domEventHandlers({
         mousedown: (event, view) => {
-          if (!(event.ctrlKey || event.metaKey)) return false;
           const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
           if (pos == null) return false;
+          // plain click on a rendered task checkbox toggles it
+          if (
+            event.button === 0 &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            (event.target as HTMLElement).closest?.(".cm-checkbox") &&
+            toggleCheckboxAt(view, pos)
+          ) {
+            event.preventDefault();
+            return true;
+          }
+          if (!(event.ctrlKey || event.metaKey)) return false;
           const target = wikilinkAt(view, pos);
-          if (!target) return false;
-          event.preventDefault();
-          cbs.openWikilink(target);
-          return true;
+          if (target) {
+            event.preventDefault();
+            cbs.openWikilink(target);
+            return true;
+          }
+          const url = urlAt(view, pos);
+          if (url) {
+            event.preventDefault();
+            cbs.openExternal(url);
+            return true;
+          }
+          return false;
         },
         paste: (event, view) => {
           if (!this.markdownish || !event.clipboardData) return false;
@@ -281,11 +330,28 @@ export class Editor {
     void this.applyLanguage(filename);
   }
 
+  /** Capture the live editor state for a backgrounded tab. The EditorState
+   * carries the document, cursor, undo history, and language config. */
+  snapshot(): { state: EditorState; scrollTop: number } {
+    return { state: this.view.state, scrollTop: this.view.scrollDOM.scrollTop };
+  }
+
+  /** Bring a snapshot back (tab switch), restoring scroll once laid out. */
+  restoreSnapshot(snap: { state: EditorState; scrollTop: number }, filename: string) {
+    this.view.setState(snap.state);
+    this.currentFile = filename;
+    this.markdownish = isMarkdownish(filename);
+    requestAnimationFrame(() => {
+      this.view.scrollDOM.scrollTop = snap.scrollTop;
+    });
+  }
+
   private async applyLanguage(filename: string) {
     if (isMarkdownish(filename)) {
       this.view.dispatch({
         effects: this.lang.reconfigure([
-          markdown({ codeLanguages: languages }),
+          // markdownLanguage = commonmark + GFM (tables, strikethrough, task lists)
+          markdown({ base: markdownLanguage, codeLanguages: languages }),
           markdownStyling(),
           imageEmbeds(this.callbacks.resolveImage),
         ]),

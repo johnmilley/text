@@ -131,6 +131,12 @@ export function pick(items: PickerItem[], opts: PickerOpts): Promise<PickerItem 
   });
 }
 
+/** Generic dismissable box (Escape / click outside); caller fills it in. */
+export function infoBox(build: (box: HTMLElement) => void) {
+  const { box } = buildModal();
+  build(box);
+}
+
 /** One-line text prompt. Resolves with the string, or null on cancel. */
 export function promptText(label: string, initial = ""): Promise<string | null> {
   return new Promise((resolve) => {

@@ -20,6 +20,10 @@ export const isViewableImage = (name: string) =>
 /** Formats inline embeds will render (SVG included). */
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|ico|avif|tiff?|svg)$/i;
 
+/** Audio formats the built-in player opens. */
+export const isAudioFile = (name: string) =>
+  /\.(mp3|wav|ogg|oga|m4a|flac|opus|aac|weba)$/i.test(name);
+
 const MIME: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",
@@ -32,6 +36,15 @@ const MIME: Record<string, string> = {
   tiff: "image/tiff",
   tif: "image/tiff",
   svg: "image/svg+xml",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  m4a: "audio/mp4",
+  flac: "audio/flac",
+  opus: "audio/ogg",
+  aac: "audio/aac",
+  weba: "audio/webm",
 };
 
 // ---------------------------------------------------------------- loading
@@ -54,12 +67,6 @@ export function loadImage(path: string): Promise<string> {
 
 export function invalidateImage(path: string) {
   cache.delete(path);
-}
-
-/** Approximate decoded byte size of a data URL. */
-export function dataUrlBytes(src: string): number {
-  const b64 = src.length - src.indexOf(",") - 1;
-  return Math.round((b64 * 3) / 4);
 }
 
 // ---------------------------------------------------------------- embeds
