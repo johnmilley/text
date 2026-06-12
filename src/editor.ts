@@ -18,6 +18,7 @@ import { LanguageDescription } from "@codemirror/language";
 import { vim } from "@replit/codemirror-vim";
 import { baseHighlighting, markdownStyling, toggleCheckboxAt, urlAt, wikilinkAt } from "./mdstyle";
 import { imageEmbeds, type ImageResolver } from "./images";
+import { tableNextCell, tableNextRow, tablePrevCell } from "./tables";
 
 export interface NoteRef {
   name: string; // file name without extension
@@ -43,6 +44,23 @@ export interface EditorCallbacks {
 const isMarkdownish = (filename: string) =>
   /\.(md|markdown|mdown|txt|text)$/.test(filename.toLowerCase()) || !filename.includes(".");
 
+const isMac = /Mac/i.test(navigator.platform);
+
+/** Typewriter scrolling (zen mode): keep the cursor line vertically centered
+ * while typing or moving. Dispatched on the next frame — dispatching from
+ * inside an update listener is not allowed. */
+const typewriterScroll = () =>
+  EditorView.updateListener.of((update) => {
+    if (!update.docChanged && !update.selectionSet) return;
+    const head = update.state.selection.main.head;
+    requestAnimationFrame(() => {
+      if (update.view.state.selection.main.head !== head) return; // stale
+      update.view.dispatch({
+        effects: EditorView.scrollIntoView(head, { y: "center" }),
+      });
+    });
+  });
+
 const URL_RE = /^https?:\/\/\S+$/i;
 
 const cmTheme = EditorView.theme({
@@ -57,9 +75,9 @@ const cmTheme = EditorView.theme({
     lineHeight: "1.65",
   },
   ".cm-content": {
-    maxWidth: "74ch",
-    margin: "0 auto",
-    padding: "28px 20px 50vh 20px",
+    // margin-driven, not a fixed column: small margins by default so wide
+    // data fits — size the window for prose. Zen mode centers a column.
+    padding: "28px var(--editor-margin, 24px) 50vh",
     caretColor: "var(--cursor)",
   },
   "&.cm-focused": { outline: "none" },
@@ -190,8 +208,10 @@ export class Editor {
   view: EditorView;
   private lang = new Compartment();
   private vimMode = new Compartment();
+  private typewriter = new Compartment();
   private callbacks: EditorCallbacks;
   private vimOn = false;
+  private typewriterOn = false;
   private currentFile = "";
   private markdownish = true;
 
@@ -207,6 +227,7 @@ export class Editor {
     const cbs = this.callbacks;
     return [
       this.vimMode.of(this.vimOn ? vim() : []),
+      this.typewriter.of(this.typewriterOn ? typewriterScroll() : []),
       this.lang.of([]),
       cmTheme,
       baseHighlighting(),
@@ -232,9 +253,26 @@ export class Editor {
           key: `Mod-${level}`,
           run: (view: EditorView) => this.markdownish && setHeading(level)(view),
         })),
-        // shadow defaultKeymap's Alt-Arrow cursor motion — back/forward nav
-        { key: "Alt-ArrowLeft", run: () => (cbs.onNavBack(), true) },
-        { key: "Alt-ArrowRight", run: () => (cbs.onNavForward(), true) },
+        // markdown tables: Tab/Shift+Tab hop cells, Enter hops rows, each
+        // hop reformats the table (no-ops outside tables → defaults apply)
+        {
+          key: "Tab",
+          run: (view) => this.markdownish && tableNextCell(view),
+          shift: (view) => this.markdownish && tablePrevCell(view),
+        },
+        { key: "Enter", run: (view) => this.markdownish && tableNextRow(view) },
+        // back/forward nav: Alt+arrows shadow defaultKeymap's cursor motion —
+        // except on macOS, where Option+arrows must stay word motion; there
+        // the Finder/Safari convention Cmd+[ / Cmd+] navigates instead
+        ...(isMac
+          ? [
+              { key: "Mod-[", run: () => (cbs.onNavBack(), true) },
+              { key: "Mod-]", run: () => (cbs.onNavForward(), true) },
+            ]
+          : [
+              { key: "Alt-ArrowLeft", run: () => (cbs.onNavBack(), true) },
+              { key: "Alt-ArrowRight", run: () => (cbs.onNavForward(), true) },
+            ]),
         {
           key: "Mod-Enter",
           run: (view) => {
@@ -393,6 +431,22 @@ export class Editor {
     if (on === this.vimOn) return;
     this.vimOn = on;
     this.view.dispatch({ effects: this.vimMode.reconfigure(on ? vim() : []) });
+  }
+
+  /** Zen mode: keep the cursor line vertically centered while editing. */
+  setTypewriter(on: boolean) {
+    if (on === this.typewriterOn) return;
+    this.typewriterOn = on;
+    this.view.dispatch({
+      effects: this.typewriter.reconfigure(on ? typewriterScroll() : []),
+    });
+    if (on) {
+      this.view.dispatch({
+        effects: EditorView.scrollIntoView(this.view.state.selection.main.head, {
+          y: "center",
+        }),
+      });
+    }
   }
 
   get text(): string {

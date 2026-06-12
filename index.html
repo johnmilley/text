@@ -51,9 +51,9 @@
         </section>
 
         <footer id="sidebar-foot">
-          <button id="btn-daily" title="Today's daily note (Ctrl+T)">today</button>
+          <button id="btn-daily" title="Today's daily note (Ctrl+Shift+D)">today</button>
           <button id="btn-share" title="Share this folder as a website (Ctrl+Shift+S)">share</button>
-          <button id="btn-config" title="Edit config.toml (Ctrl+,)">config</button>
+          <button id="btn-config" title="Settings (Ctrl+,)">settings</button>
         </footer>
       </aside>
 
@@ -62,9 +62,10 @@
       <main id="main">
         <div id="tabbar">
           <div id="tabs"></div>
-          <button id="tab-new" title="New tab (Ctrl+Shift+N)">+</button>
+          <button id="tab-new" title="New tab (Ctrl+T)">+</button>
         </div>
         <div id="content">
+        <div id="pane1">
         <div id="editor-host"></div>
         <button id="btn-table" hidden>view as table</button>
         <div id="image-view" hidden>
@@ -99,8 +100,6 @@
             <span id="pdf-zoom" title="Zoom (relative to page width)">100%</span>
             <button id="pdf-grow" title="Zoom in">+</button>
             <button id="pdf-fit" title="Fit page width">fit</button>
-            <span class="tools-sep"></span>
-            <button id="pdf-external" title="Open in the system PDF viewer">open externally</button>
           </div>
           <div id="pdf-pages"></div>
         </div>
@@ -110,9 +109,18 @@
             <p>a plain editor for a folder of plain files</p>
             <button id="btn-open-folder">open folder</button>
             <p class="welcome-keys">
-              ctrl+p switch &nbsp; ctrl+shift+f search &nbsp; ctrl+t today &nbsp; ctrl+/ shortcuts
+              ctrl+p switch &nbsp; ctrl+shift+f search &nbsp; ctrl+t new tab &nbsp; ctrl+/ shortcuts
             </p>
           </div>
+        </div>
+        </div>
+        <!-- second editor pane (Ctrl+Shift+\ cycles vertical/horizontal/off) -->
+        <div id="pane2" hidden>
+          <div id="pane2-bar">
+            <span id="pane2-name">empty — open a file here</span>
+            <button id="pane2-close" title="Close split">×</button>
+          </div>
+          <div id="editor2-host"></div>
         </div>
         </div>
         <!-- issue bar: hidden unless something needs attention -->

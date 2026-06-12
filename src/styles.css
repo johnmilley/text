@@ -18,6 +18,14 @@ body {
 body {
   display: flex;
   flex-direction: column;
+  /* hairline around the window (no native decorations) so the app doesn't
+     melt into whatever is behind it */
+  border: 1px solid var(--border);
+}
+body.maximized,
+body.zen,
+body.macos {
+  border: none; /* macOS windows get a native border and shadow */
 }
 
 /* ----------------------------------------------------------- title bar */
@@ -282,14 +290,69 @@ button:hover {
   min-width: 0;
 }
 
-/* the editor area below the tab bar — overlays (image/audio/table/pdf/
-   welcome) anchor to this, so the tab bar stays reachable above them */
+/* the editor area below the tab bar: pane 1 (with its overlays) plus an
+   optional split pane, side by side or stacked */
 #content {
-  position: relative;
   flex: 1;
+  min-height: 0;
+  display: flex; /* row = vertical split; .split-h stacks */
+}
+#content.split-h {
+  flex-direction: column;
+}
+
+/* overlays (image/audio/table/pdf/welcome) anchor to pane 1, so the tab bar
+   and the split pane stay reachable while one is open */
+#pane1 {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+#pane2 {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+#content.split-h #pane2 {
+  border-left: none;
+  border-top: 1px solid var(--border);
+}
+#pane2[hidden] {
+  display: none;
+}
+#pane2-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 2px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+#pane2.pane-focused #pane2-bar {
+  color: var(--fg);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+#pane2-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#editor2-host {
+  flex: 1;
+  min-height: 0;
+}
+#editor2-host .cm-editor {
+  height: 100%;
 }
 
 /* ------------------------------------------------------------- tab bar */
@@ -761,6 +824,109 @@ body.tree-dragging * {
   background: none;
 }
 
+/* ------------------------------------------------------------- settings */
+
+.settings-box {
+  width: min(640px, 90vw);
+  max-height: 76vh;
+}
+.settings-body {
+  overflow-y: auto;
+  padding: 4px 16px 14px;
+}
+.settings-section {
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
+  margin: 14px 0 4px;
+  padding-bottom: 3px;
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 0;
+}
+.set-label {
+  min-width: 0;
+}
+.set-hint {
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+.settings-keys-hint {
+  margin: 4px 0 2px;
+}
+.set-btn,
+.settings-foot button {
+  border: 1px solid var(--border);
+  padding: 3px 12px;
+}
+.set-input {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  outline: none;
+  font: inherit;
+  width: 180px;
+}
+.set-input:focus {
+  border-color: var(--accent);
+}
+.set-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.set-stepper button {
+  border: 1px solid var(--border);
+  padding: 1px 8px;
+}
+.set-value {
+  min-width: 3ch;
+  text-align: center;
+  font-family: var(--font-editor);
+}
+.set-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.set-key kbd {
+  font-family: var(--font-editor);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.set-key kbd:hover {
+  border-color: var(--accent);
+}
+.set-key kbd.capturing {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.set-key kbd.conflict {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+.set-key-reset {
+  color: var(--fg-muted);
+  padding: 1px 6px;
+}
+.set-key-reset:hover {
+  color: var(--fg);
+}
+.settings-foot {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* keyboard shortcuts modal */
 .keys-grid {
   overflow-y: auto;
@@ -938,6 +1104,47 @@ body.tree-dragging * {
 .share-orphan-row button {
   border: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------- zen mode */
+/* fullscreen writing: chrome gone, centered column, larger type; the issue
+   bar stays — save conflicts matter even in zen */
+
+body.zen #titlebar,
+body.zen #tabbar,
+body.zen #sidebar,
+body.zen #resizer,
+body.zen #pane2,
+body.zen .grip {
+  display: none !important;
+}
+body.zen .cm-editor {
+  font-size: calc(var(--editor-font-size, 15px) * 1.3);
+}
+body.zen .cm-content {
+  max-width: 68ch;
+  margin: 0 auto;
+  /* room above and below so the cursor line can hold the screen's middle
+     (typewriter scrolling) even at the start and end of a note */
+  padding-top: 45vh;
+  padding-bottom: 50vh;
+}
+
+/* ----------------------------------------------------------------- macOS */
+/* native decorations with overlay traffic lights top-left: hide the custom
+   window buttons and resize grips, clear space for the lights, and keep the
+   title visually centered */
+
+body.macos #titlebar-buttons,
+body.macos .grip {
+  display: none;
+}
+body.macos #btn-sidebar {
+  margin-left: 72px;
+}
+body.macos #titlebar-title {
+  padding-left: 0;
+  padding-right: 100px;
 }
 
 /* ------------------------------------------------- window resize grips */

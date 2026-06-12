@@ -40,6 +40,7 @@ export interface Config {
   font_size: number;
   ui_font_size: number;
   editor_font: string;
+  editor_margin: number;
   vim_mode: boolean;
   root: string | null;
   recent_roots: string[];

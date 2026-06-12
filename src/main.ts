@@ -1,4 +1,3 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -6,12 +5,20 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { EditorState } from "@codemirror/state";
 import * as api from "./api";
+import "./fonts";
 import { Editor, type NoteRef } from "./editor";
-import { applyTheme, setEditorFont, setFontSize, setUiFontSize } from "./theme";
+import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setUiFontSize } from "./theme";
 import { closeModal, confirmBox, infoBox, pick, promptText } from "./modal";
+import { openSettings } from "./settings";
 import { openShareDialog } from "./share";
 import { closePdfDoc, initPdfView, isPdfFile, openPdfDoc } from "./pdf";
-import { invalidateImage, isAudioFile, isViewableImage, loadImage } from "./images";
+import {
+  invalidateImage,
+  isAudioFile,
+  isViewableImage,
+  loadAudio,
+  loadImage,
+} from "./images";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
   document.querySelector(sel) as T;
@@ -42,6 +49,8 @@ let editor: Editor;
 // its session (tabs, last file); spawned windows are ephemeral.
 const isMain = getCurrentWindow().label === "main";
 
+const isMac = /Mac/i.test(navigator.platform);
+
 /** Editor state stashed when a text-file tab is backgrounded. */
 interface TabSnap {
   path: string;
@@ -61,6 +70,18 @@ interface Tab {
 let tabs: Tab[] = [{ path: null, back: [], fwd: [] }];
 let active = 0;
 const tab = () => tabs[active];
+
+// split pane: a second, text-only editor beside (or below) the main pane.
+// Tabs and media views always belong to pane 1; pane 2 is for referencing
+// or editing one other note alongside.
+let split: "off" | "v" | "h" = "off";
+let focusedPane: 1 | 2 = 1;
+let editor2: Editor | null = null;
+let pane2Path: string | null = null;
+let pane2Mtime: number | null = null;
+let pane2Dirty = false;
+let pane2Saving = false;
+let pane2SaveTimer: number | undefined;
 
 const expanded = new Set<string>(
   JSON.parse(localStorage.getItem("text.expanded") ?? "[]"),
@@ -139,7 +160,8 @@ const hideIssue = () => {
 const tableShown = () => !$("#table-view").hidden;
 
 function updateStatus() {
-  const title = currentPath ? `text — ${rel(currentPath)}` : "text";
+  const shown = focusedPane === 2 && pane2Path ? pane2Path : currentPath;
+  const title = shown ? `text — ${rel(shown)}` : "text";
   document.title = title;
   $("#titlebar-title").textContent = title;
   const tableBtn = $("#btn-table");
@@ -490,6 +512,7 @@ function navigate(from: string[], to: string[]) {
   const path = popExisting(from);
   if (!path) return;
   if (currentPath) to.push(currentPath);
+  if (focusedPane !== 1) setFocusedPane(1); // history belongs to pane 1
   navigating = true;
   void openFile(path).finally(() => (navigating = false));
 }
@@ -604,6 +627,7 @@ async function tryRestoreSnap(t: Tab): Promise<boolean> {
  * disk. Never records nav history. */
 async function activateTab() {
   renderTabs();
+  if (focusedPane !== 1) setFocusedPane(1); // tabs always drive pane 1
   const t = tab();
   navigating = true;
   try {
@@ -645,8 +669,8 @@ async function closeTab(i: number) {
   if (i === active && dirty && !(await save()) && dirty) return;
   tabs.splice(i, 1);
   if (!tabs.length) {
-    // last tab: spawned windows close; the main window keeps an empty tab
-    if (!isMain) return void getCurrentWindow().close();
+    // last tab: every window keeps an empty tab — closing the window is the
+    // window button's job, never a surprise side effect of closing a tab
     tabs.push({ path: null, back: [], fwd: [] });
     active = 0;
     return activateTab();
@@ -679,11 +703,14 @@ async function detachTab(i: number) {
   const t = tabs[i];
   if (!t || !root) return;
   if (i === active && dirty && !(await save()) && dirty) return;
+  // moving the only tab out of a spawned window would leave it empty
+  const emptiesSpawned = !isMain && tabs.length === 1;
   try {
     await api.openWindow(root, t.path);
   } catch (err) {
     return showIssue(`new window failed: ${err}`, [{ label: "ok", run: hideIssue }]);
   }
+  if (emptiesSpawned) return void getCurrentWindow().close();
   await closeTab(i);
 }
 
@@ -694,7 +721,7 @@ function newWindow() {
   });
 }
 
-/** Rewrite tab paths after `from` (file or folder) moved to `to`. */
+/** Rewrite tab and split-pane paths after `from` moved to `to`. */
 function remapTabs(from: string, to: string) {
   const remap = (p: string | null) =>
     p && (p === from || p.startsWith(from + "/")) ? to + p.slice(from.length) : p;
@@ -702,6 +729,8 @@ function remapTabs(from: string, to: string) {
     t.path = remap(t.path);
     if (t.snap) t.snap.path = remap(t.snap.path)!;
   }
+  pane2Path = remap(pane2Path);
+  if (pane2Path) $("#pane2-name").textContent = rel(pane2Path);
   renderTabs();
 }
 
@@ -791,6 +820,169 @@ function reorderTab(from: number, to: number) {
   renderTabs();
 }
 
+// ---------------------------------------------------------------- split pane
+
+function setFocusedPane(n: 1 | 2) {
+  if (n === 2 && split === "off") n = 1;
+  focusedPane = n;
+  $("#pane2").classList.toggle("pane-focused", n === 2);
+  setCurrentRow(n === 2 ? pane2Path : currentPath);
+  updateStatus();
+}
+
+function ensureEditor2(): Editor {
+  if (editor2) return editor2;
+  editor2 = new Editor($("#editor2-host"), {
+    onDocChanged: () => {
+      pane2Dirty = true;
+      window.clearTimeout(pane2SaveTimer);
+      pane2SaveTimer = window.setTimeout(() => void savePane2(), 900);
+    },
+    onStatus: () => {},
+    onSave: () => void savePane2(),
+    getNotes: () => notes,
+    openWikilink, // focus is in pane 2 when clicked, so it routes back here
+    openExternal: (url) => void openUrl(url),
+    resolveImage: imageResolver(() => pane2Path),
+    importImageBlob,
+    onNavBack: () => {},
+    onNavForward: () => {},
+  });
+  editor2.setVim(config.vim_mode);
+  return editor2;
+}
+
+async function cycleSplit() {
+  await setSplit(split === "off" ? "v" : split === "v" ? "h" : "off");
+}
+
+async function setSplit(mode: "off" | "v" | "h") {
+  if (mode === split) return;
+  if (mode === "off") {
+    if (pane2Dirty) await savePane2();
+    split = "off";
+    $("#pane2").hidden = true;
+    $("#content").classList.remove("split-h");
+    setFocusedPane(1);
+    editor.focus();
+    return;
+  }
+  const opening = split === "off";
+  split = mode;
+  $("#content").classList.toggle("split-h", mode === "h");
+  $("#pane2").hidden = false;
+  ensureEditor2();
+  if (opening) {
+    // focus the new pane so the next tree click / quick switch lands here
+    setFocusedPane(2);
+    editor2!.focus();
+  }
+}
+
+/** Open a text file in the split pane (full editing + autosave). */
+async function openInPane2(path: string) {
+  if (path === currentPath) {
+    // already open in the main pane — don't edit one file in two views
+    setFocusedPane(1);
+    editor.focus();
+    return;
+  }
+  if (pane2Dirty) await savePane2();
+  hideIssue();
+  try {
+    const file = await api.readFile(path);
+    pane2Path = path;
+    pane2Mtime = file.mtime;
+    pane2Dirty = false;
+    ensureEditor2().openDoc(file.content, path.split("/").pop() ?? path);
+    $("#pane2-name").textContent = rel(path);
+    setFocusedPane(2);
+    editor2!.focus();
+  } catch (err) {
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
+  }
+}
+
+async function savePane2(): Promise<boolean> {
+  if (!pane2Path || pane2Saving || !editor2) return true;
+  pane2Saving = true;
+  try {
+    const result = await api.writeFile(pane2Path, editor2.text, pane2Mtime);
+    if (result.conflict) {
+      showIssue("the split-pane file changed on disk while you were editing it", [
+        {
+          label: "overwrite with mine",
+          run: () => {
+            pane2Mtime = null;
+            void savePane2();
+          },
+        },
+        { label: "reload from disk", run: () => void reloadPane2() },
+      ]);
+      return false;
+    }
+    pane2Mtime = result.mtime;
+    pane2Dirty = false;
+    if (pane2Path === configFilePath) await applyConfigFromDisk();
+    return true;
+  } catch (err) {
+    showIssue(`save failed (split pane): ${err}`, [{ label: "ok", run: hideIssue }]);
+    return false;
+  } finally {
+    pane2Saving = false;
+  }
+}
+
+async function reloadPane2() {
+  if (!pane2Path || !editor2) return;
+  const file = await api.readFile(pane2Path);
+  pane2Mtime = file.mtime;
+  pane2Dirty = false;
+  editor2.replaceContent(file.content);
+}
+
+function emptyPane2() {
+  pane2Path = null;
+  pane2Mtime = null;
+  pane2Dirty = false;
+  editor2?.openDoc("", "untitled.md");
+  $("#pane2-name").textContent = "empty — open a file here";
+}
+
+/** External change handling for the split pane (mirrors the main pane). */
+async function pane2FsChanged() {
+  if (!pane2Path || !editor2) return;
+  let onDisk: number | null;
+  try {
+    onDisk = await api.statMtime(pane2Path);
+  } catch {
+    showIssue("the split-pane file was deleted or moved on disk", [
+      {
+        label: "keep my copy (re-save)",
+        run: () => {
+          pane2Mtime = null;
+          void savePane2();
+        },
+      },
+      { label: "close it", run: emptyPane2 },
+    ]);
+    return;
+  }
+  if (pane2Mtime !== null && onDisk === pane2Mtime) return;
+  if (!pane2Dirty) await reloadPane2();
+  else
+    showIssue("the split-pane file changed on disk and you have unsaved edits", [
+      {
+        label: "keep mine (overwrites)",
+        run: () => {
+          pane2Mtime = null;
+          void savePane2();
+        },
+      },
+      { label: "take theirs", run: () => void reloadPane2() },
+    ]);
+}
+
 // ---------------------------------------------------------------- open/save
 
 /** Only the main window owns the cross-launch "last file" fallback. */
@@ -799,6 +991,25 @@ function rememberFile(path: string) {
 }
 
 async function openFile(path: string) {
+  if (split !== "off") {
+    // a file already showing in the split pane: focus it instead of opening
+    // the same document in two editors
+    if (path === pane2Path) {
+      setFocusedPane(2);
+      editor2?.focus();
+      return;
+    }
+    // text files land in whichever pane has focus; media always in pane 1
+    if (
+      focusedPane === 2 &&
+      !isViewableImage(path) &&
+      !isAudioFile(path) &&
+      !isPdfFile(path)
+    ) {
+      return openInPane2(path);
+    }
+    if (focusedPane !== 1) setFocusedPane(1);
+  }
   if (isViewableImage(path)) return openImage(path);
   if (isAudioFile(path)) return openAudio(path);
   if (isPdfFile(path)) return openPdf(path);
@@ -877,9 +1088,14 @@ async function openAudio(path: string) {
     hidePdfView();
     $("#audio-name").textContent = path.split("/").pop() ?? path;
     const audio = $<HTMLAudioElement>("#audio-view audio");
-    // asset protocol streams from disk with range support — data URLs choke
-    // WebKitGTK's media player
-    audio.src = convertFileSrc(path);
+    audio.onerror = () => {
+      const code = audio.error ? ` (media error ${audio.error.code})` : "";
+      const hint = isMac ? "" : " — a GStreamer codec for this format may be missing";
+      showIssue(`playback failed${code}${hint}`, [
+        { label: "open in system player", run: () => void openPath(path) },
+      ]);
+    };
+    audio.src = await loadAudio(path);
     $("#audio-view").hidden = false;
     $("#welcome").style.display = "none";
     rememberFile(path);
@@ -1129,6 +1345,7 @@ function scheduleAutosave() {
 async function onFsChanged(paths: string[]) {
   await refreshTree();
   for (const p of paths) invalidateImage(p);
+  if (pane2Path && paths.includes(pane2Path)) await pane2FsChanged();
   if (!currentPath || !paths.includes(currentPath)) return;
   if (viewingImage || viewingAudio || viewingPdf) {
     const kind = viewingAudio ? "audio file" : viewingPdf ? "PDF" : "image";
@@ -1257,6 +1474,7 @@ async function deleteEntry(entry: api.Entry) {
   if (!ok) return;
   await api.trashPath(entry.path);
   if (currentPath?.startsWith(entry.path)) closeCurrent();
+  if (pane2Path?.startsWith(entry.path)) emptyPane2();
   await refreshTree();
 }
 
@@ -1314,8 +1532,11 @@ function normalizePath(p: string): string {
 }
 
 /** Resolve an embed target to an img src: URLs pass through; local paths are
- * tried relative to the open file, then the root, then by bare file name. */
-async function resolveImage(target: string): Promise<string | null> {
+ * tried relative to the pane's open file, then the root, then by bare file
+ * name. `getBase` supplies the pane's current file (one resolver per pane). */
+const imageResolver = (getBase: () => string | null) => async (
+  target: string,
+): Promise<string | null> => {
   if (/^(https?:|data:)/i.test(target)) return target;
   if (!root) return null;
   let t = target;
@@ -1324,7 +1545,8 @@ async function resolveImage(target: string): Promise<string | null> {
   } catch {
     // not URI-encoded — use as-is
   }
-  const dir = currentPath ? currentPath.slice(0, currentPath.lastIndexOf("/")) : root;
+  const baseFile = getBase();
+  const dir = baseFile ? parentOf(baseFile) : root;
   const candidates = t.startsWith("/") ? [t] : [`${dir}/${t}`, `${root}/${t}`];
   for (const c of candidates) {
     const path = normalizePath(c);
@@ -1339,7 +1561,7 @@ async function resolveImage(target: string): Promise<string | null> {
     if (src) return src;
   }
   return null;
-}
+};
 
 // ---------------------------------------------------------------- image import
 
@@ -1497,11 +1719,22 @@ async function openDaily() {
 
 async function pickTheme() {
   themes = await api.listThemes();
+  const current = themes.find((t) => t.id === config.theme);
   const chosen = await pick(
     themes.map((t) => ({ label: t.name, detail: t.id, value: t.id })),
-    { placeholder: "theme…" },
+    {
+      placeholder: "theme…",
+      // live preview while arrowing / hovering (never on open)
+      onHighlight: (item) => {
+        const theme = themes.find((t) => t.id === item?.value);
+        if (theme) applyTheme(theme);
+      },
+    },
   );
-  if (!chosen) return;
+  if (!chosen) {
+    if (current) applyTheme(current); // cancelled — put the theme back
+    return;
+  }
   const theme = themes.find((t) => t.id === chosen.value);
   if (theme) applyTheme(theme);
   config.theme = chosen.value;
@@ -1510,23 +1743,32 @@ async function pickTheme() {
 
 // ---------------------------------------------------------------- editor font
 
-/** A tasteful shortlist of typing fonts. Each entry is a stack that degrades
- * gracefully when the first choice isn't installed; `probe` is the family
- * name used to detect availability for the picker annotation. */
-const EDITOR_FONTS: { label: string; kind: string; stack: string; probe?: string }[] = [
+/** A tasteful shortlist of typing fonts. `bundled` families ship with the
+ * app (see fonts.ts) and are always available; the rest degrade gracefully
+ * when not installed — `probe` is the family name used to detect that. */
+const EDITOR_FONTS: { label: string; kind: string; stack: string; probe?: string; bundled?: boolean }[] = [
   { label: "theme default", kind: "", stack: "" },
   { label: "system monospace", kind: "mono", stack: "ui-monospace, monospace" },
-  { label: "JetBrains Mono", kind: "mono", stack: "'JetBrains Mono', ui-monospace, monospace" },
-  { label: "IBM Plex Mono", kind: "mono", stack: "'IBM Plex Mono', ui-monospace, monospace" },
+  { label: "iA Writer Mono", kind: "mono", stack: "'iA Writer Mono', ui-monospace, monospace", bundled: true },
+  { label: "iA Writer Duo", kind: "duospace", stack: "'iA Writer Duo', ui-monospace, monospace", bundled: true },
+  { label: "JetBrains Mono", kind: "mono", stack: "'JetBrains Mono', 'JetBrains Mono Variable', ui-monospace, monospace", bundled: true },
+  { label: "IBM Plex Mono", kind: "mono", stack: "'IBM Plex Mono', ui-monospace, monospace", bundled: true },
   { label: "Iosevka", kind: "mono", stack: "'Iosevka', 'Iosevka Fixed', ui-monospace, monospace" },
-  { label: "Fira Code", kind: "mono", stack: "'Fira Code', ui-monospace, monospace" },
+  { label: "Fira Code", kind: "mono", stack: "'Fira Code', 'Fira Code Variable', ui-monospace, monospace", bundled: true },
   { label: "system sans", kind: "sans", stack: "system-ui, sans-serif" },
-  { label: "Inter", kind: "sans", stack: "'Inter', 'Inter Variable', system-ui, sans-serif" },
-  { label: "IBM Plex Sans", kind: "sans", stack: "'IBM Plex Sans', system-ui, sans-serif" },
+  {
+    label: "iA Writer Quattro",
+    kind: "quattro — nearly proportional",
+    stack: "'iA Writer Quattro', system-ui, sans-serif",
+    bundled: true,
+  },
+  { label: "Inter", kind: "sans", stack: "'Inter', 'Inter Variable', system-ui, sans-serif", bundled: true },
+  { label: "IBM Plex Sans", kind: "sans", stack: "'IBM Plex Sans', system-ui, sans-serif", bundled: true },
   {
     label: "Atkinson Hyperlegible",
     kind: "sans",
     stack: "'Atkinson Hyperlegible', 'Atkinson Hyperlegible Next', system-ui, sans-serif",
+    bundled: true,
   },
   { label: "Cantarell", kind: "sans", stack: "'Cantarell', system-ui, sans-serif" },
   {
@@ -1538,20 +1780,22 @@ const EDITOR_FONTS: { label: string; kind: string; stack: string; probe?: string
   {
     label: "Source Serif",
     kind: "serif",
-    stack: "'Source Serif 4', 'Source Serif Pro', 'Georgia', 'Liberation Serif', serif",
+    stack: "'Source Serif 4', 'Source Serif 4 Variable', 'Source Serif Pro', 'Georgia', serif",
     probe: "Source Serif 4",
+    bundled: true,
   },
   {
     label: "Literata",
     kind: "serif",
-    stack: "'Literata', 'Charter', 'Bitstream Charter', 'Liberation Serif', serif",
+    stack: "'Literata', 'Literata Variable', 'Charter', 'Bitstream Charter', serif",
+    bundled: true,
   },
 ];
 
 async function pickEditorFont() {
   const detail = (f: (typeof EDITOR_FONTS)[number]) => {
     if (!f.kind) return "follows the theme";
-    if (f.label.startsWith("system")) return f.kind;
+    if (f.bundled || f.label.startsWith("system")) return f.kind;
     const have = document.fonts.check(`16px "${f.probe ?? f.label}"`);
     return have ? f.kind : `${f.kind} · not installed, uses fallback`;
   };
@@ -1568,6 +1812,24 @@ async function pickEditorFont() {
   if (!chosen) return;
   config.editor_font = chosen.value;
   await api.saveConfig(config);
+}
+
+// ---------------------------------------------------------------- zen mode
+
+// fullscreen, chrome hidden, a centered column with a slightly larger font,
+// and typewriter scrolling (cursor line stays mid-screen)
+let zen = false;
+
+async function toggleZen() {
+  zen = !zen;
+  document.body.classList.toggle("zen", zen);
+  editor.setTypewriter(zen);
+  try {
+    await getCurrentWindow().setFullscreen(zen);
+  } catch {
+    // fullscreen unavailable — zen still applies in-window
+  }
+  editor.focus();
 }
 
 // ---------------------------------------------------------------- sharing
@@ -1606,7 +1868,9 @@ async function applyConfigFromDisk() {
   setFontSize(config.font_size);
   setUiFontSize(config.ui_font_size);
   setEditorFont(config.editor_font);
+  setEditorMargin(config.editor_margin);
   editor.setVim(config.vim_mode);
+  editor2?.setVim(config.vim_mode);
   $("#sidebar").style.width = `${config.sidebar_width}px`;
   themes = await api.listThemes();
   const theme = themes.find((t) => t.id === config.theme) ?? themes[0];
@@ -1614,8 +1878,45 @@ async function applyConfigFromDisk() {
 }
 
 async function openConfig() {
+  closeModal(); // settings panel stays open otherwise, hiding the editor
   await api.saveConfig(config); // make sure the file exists with current values
   await openFile(configFilePath);
+}
+
+/** The settings panel (Ctrl+,) — a friendly face over config.toml. */
+function openSettingsPanel() {
+  openSettings({
+    config,
+    save: scheduleConfigSave,
+    applyFontSizes: () => {
+      setFontSize(config.font_size);
+      setUiFontSize(config.ui_font_size);
+    },
+    applyMargin: () => setEditorMargin(config.editor_margin),
+    applyVim: () => {
+      editor.setVim(config.vim_mode);
+      editor2?.setVim(config.vim_mode);
+    },
+    pickTheme: () => void pickTheme(),
+    pickFont: () => void pickEditorFont(),
+    openConfigFile: () => void openConfig(),
+    fontLabel: () =>
+      EDITOR_FONTS.find((f) => f.stack === config.editor_font)?.label ??
+      (config.editor_font ? "custom" : "theme default"),
+    actions: ACTIONS.map(({ id, combo, what }) => ({ id, combo, what })),
+    effectiveCombo: (id) => effectiveCombo(ACTIONS.find((a) => a.id === id)!),
+    setKey: (id, combo) => {
+      if (combo === null) delete config.keys[id];
+      else config.keys[id] = combo;
+      rebindKeys();
+      scheduleConfigSave();
+    },
+    isOverridden: (id) => {
+      const a = ACTIONS.find((x) => x.id === id)!;
+      return effectiveCombo(a) !== normalizeCombo(a.combo);
+    },
+    prettyCombo,
+  });
 }
 
 // ---------------------------------------------------------------- root folder
@@ -1700,7 +2001,7 @@ async function switchFolder() {
 const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = [
   { id: "quick_switch", combo: "ctrl+p", what: "quick switch / new note", run: () => void quickSwitch() },
   { id: "new_note", combo: "ctrl+n", what: "new note", run: () => void newNote() },
-  { id: "daily_note", combo: "ctrl+t", what: "today's daily note", run: () => void openDaily() },
+  { id: "daily_note", combo: "ctrl+shift+d", what: "today's daily note", run: () => void openDaily() },
   { id: "open_folder", combo: "ctrl+o", what: "open folder…", run: () => void chooseFolder() },
   { id: "switch_folder", combo: "ctrl+shift+o", what: "switch between recent folders", run: () => void switchFolder() },
   { id: "search", combo: "ctrl+shift+f", what: "search everywhere", run: () => showPane("search") },
@@ -1708,14 +2009,16 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "theme", combo: "ctrl+shift+t", what: "switch theme", run: () => void pickTheme() },
   { id: "editor_font", combo: "ctrl+shift+e", what: "editor font", run: () => void pickEditorFont() },
   { id: "share", combo: "ctrl+shift+s", what: "share folder as a website", run: shareRoot },
-  { id: "config", combo: "ctrl+,", what: "edit config (shortcuts rebindable there)", run: () => void openConfig() },
+  { id: "config", combo: "ctrl+,", what: "settings", run: () => openSettingsPanel() },
   { id: "shortcuts", combo: "ctrl+/", what: "this list", run: () => showShortcuts() },
   { id: "toggle_sidebar", combo: "ctrl+\\", what: "toggle sidebar", run: () => toggleSidebar() },
-  { id: "new_tab", combo: "ctrl+shift+n", what: "new tab", run: () => void newTab() },
+  { id: "new_tab", combo: "ctrl+t", what: "new tab", run: () => void newTab() },
   { id: "close_tab", combo: "ctrl+w", what: "close tab", run: () => void closeTab(active) },
   { id: "next_tab", combo: "ctrl+tab", what: "next tab", run: () => void switchTab((active + 1) % tabs.length) },
   { id: "prev_tab", combo: "ctrl+shift+tab", what: "previous tab", run: () => void switchTab((active + tabs.length - 1) % tabs.length) },
-  { id: "new_window", combo: "ctrl+alt+n", what: "new window", run: newWindow },
+  { id: "new_window", combo: "ctrl+shift+n", what: "new window", run: newWindow },
+  { id: "split", combo: "ctrl+shift+\\", what: "split editor (vertical → horizontal → off)", run: () => void cycleSplit() },
+  { id: "zen", combo: "alt+z", what: "zen mode (fullscreen, typewriter) — also F11", run: () => void toggleZen() },
 ];
 
 /** Normalize "Ctrl + Shift+F" → "ctrl+shift+f" with canonical modifier order. */
@@ -1747,7 +2050,12 @@ function rebindKeys() {
 const prettyCombo = (combo: string) =>
   combo
     .split("+")
-    .map((p) => (p.length === 1 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1)))
+    .map((p) => {
+      // "ctrl" in a combo means Cmd on macOS (matching is ctrlKey || metaKey)
+      if (isMac && p === "ctrl") return "Cmd";
+      if (isMac && p === "alt") return "Option";
+      return p.length === 1 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1);
+    })
     .join("+");
 
 // ---------------------------------------------------------------- shortcuts help
@@ -1764,12 +2072,16 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ["Ctrl+1 … Ctrl+6", "heading level 1–6 (repeat to clear)"],
       ["Ctrl+F", "find in note"],
       ["click a [ ]", "toggle checkbox"],
+      ["Tab / Shift+Tab", "table: next / previous cell (auto-formats)"],
+      ["Enter", "table: row below (on an empty last row: leave the table)"],
     ],
   ],
   [
     "navigation",
     [
-      ["Alt+← / Alt+→", "back / forward through opened files"],
+      isMac
+        ? ["Cmd+[ / Cmd+]", "back / forward through opened files"]
+        : ["Alt+← / Alt+→", "back / forward through opened files"],
       ["Ctrl+Enter", "open wikilink under cursor"],
       ["Ctrl+click", "follow wikilink, or open URL in browser"],
     ],
@@ -1818,9 +2130,14 @@ function showShortcuts() {
 
 function onKeydown(e: KeyboardEvent) {
   const mod = e.ctrlKey || e.metaKey;
+  if (e.key === "F11") {
+    e.preventDefault();
+    return void toggleZen();
+  }
   // Alt+arrows: back/forward. The editor keymap handles these itself when
-  // focused (defaultPrevented) — this catches them everywhere else.
-  if (e.altKey && !mod && !e.shiftKey && !e.defaultPrevented) {
+  // focused (defaultPrevented) — this catches them everywhere else. On
+  // macOS Option+arrows stay word motion; nav is Cmd+[ / Cmd+] there.
+  if (!isMac && e.altKey && !mod && !e.shiftKey && !e.defaultPrevented) {
     if (e.key === "ArrowLeft") return (e.preventDefault(), goBack());
     if (e.key === "ArrowRight") return (e.preventDefault(), goForward());
   }
@@ -1902,13 +2219,17 @@ async function init() {
     getNotes: () => notes,
     openWikilink,
     openExternal: (url) => void openUrl(url),
-    resolveImage,
+    resolveImage: imageResolver(() => currentPath),
     importImageBlob,
     onNavBack: goBack,
     onNavForward: goForward,
   });
 
   await applyConfigFromDisk();
+
+  // macOS: native decorations with overlay traffic lights replace the custom
+  // window buttons and resize grips (see tauri.macos.conf.json / windows.rs)
+  if (isMac) document.body.classList.add("macos");
 
   const appWindow = getCurrentWindow();
   $("#tb-min").addEventListener("click", () => void appWindow.minimize());
@@ -1935,6 +2256,12 @@ async function init() {
     event.preventDefault();
     await save();
     void appWindow.destroy();
+  });
+  // also flush when the window loses focus — covers app quits that skip
+  // close-requested (macOS Cmd+Q) and just plain switching away
+  window.addEventListener("blur", () => {
+    if (dirty) void save();
+    if (pane2Dirty) void savePane2();
   });
 
   $("#btn-open-folder").addEventListener("click", () => void chooseFolder());
@@ -1977,9 +2304,15 @@ async function init() {
     updateStatus();
   });
   $("#tab-new").addEventListener("click", () => void newTab());
+  $("#pane2-close").addEventListener("click", () => void setSplit("off"));
+  // focus follows the pane the user interacts with
+  $("#pane1").addEventListener("mousedown", () => setFocusedPane(1), true);
+  $("#pane2").addEventListener("mousedown", () => setFocusedPane(2), true);
+  $("#pane1").addEventListener("focusin", () => setFocusedPane(1));
+  $("#pane2").addEventListener("focusin", () => setFocusedPane(2));
   $("#btn-daily").addEventListener("click", () => void openDaily());
   $("#btn-share").addEventListener("click", shareRoot);
-  $("#btn-config").addEventListener("click", () => void openConfig());
+  $("#btn-config").addEventListener("click", () => openSettingsPanel());
   $("#btn-config").addEventListener("contextmenu", (e) => {
     e.preventDefault();
     void openPath(themesDir);
@@ -1993,7 +2326,19 @@ async function init() {
   });
   window.addEventListener("keydown", onKeydown);
   initResizer();
-  initPdfView((path) => void openPath(path));
+  initPdfView();
+  // wheel zooms images, like a standalone image viewer
+  $("#image-stage").addEventListener(
+    "wheel",
+    (e) => {
+      if (!viewingImage) return;
+      e.preventDefault();
+      const step = e.deltaY < 0 ? 0.1 : -0.1;
+      imgScale = Math.min(4, Math.max(0.1, Math.round((imgScale + step) * 10) / 10));
+      applyImageTools();
+    },
+    { passive: false },
+  );
 
   await listen<string[]>("fs:changed", (event) => void onFsChanged(event.payload));
   await getCurrentWebview().onDragDropEvent((event) => {
@@ -2004,16 +2349,23 @@ async function init() {
 
   renderTabs();
 
-  // a spawned window (new-window / detached tab) gets its root and file
-  // handed over by the backend; the main window restores its session
-  const params = isMain ? null : await api.windowInitParams().catch(() => null);
+  // init params come from the backend: CLI args for the main window
+  // (`text <file|dir>`), or the hand-over to new-window / detached tabs.
+  // without params, the main window restores its previous session.
+  const params = await api.windowInitParams().catch(() => null);
   const startRoot = params?.root ?? config.root;
   if (startRoot) {
     try {
       await openRoot(startRoot);
-      if (isMain) await restoreSession();
-      else if (params?.file) await openFile(params.file);
-      else await openFirstFile();
+      if (params?.file) {
+        await api.createFile(params.file).catch(() => {}); // `text newnote.md`
+        await refreshTree();
+        await openFile(params.file);
+      } else if (isMain && !params) {
+        await restoreSession();
+      } else {
+        await openFirstFile();
+      }
     } catch {
       config.root = null;
     }

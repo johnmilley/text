@@ -25,7 +25,7 @@ Built with Tauri 2 (Rust) and CodeMirror 6.
 | --- | --- |
 | `Ctrl+P` | quick switcher (type a new name + Enter to create) |
 | `Ctrl+N` | new note |
-| `Ctrl+T` | today's daily note (`daily/YYYY/MM/YYYY-MM-DD.md`) |
+| `Ctrl+Shift+D` | today's daily note (`daily/YYYY/MM/YYYY-MM-DD.md`) |
 | `Ctrl+S` | save now |
 | `Ctrl+F` | find in file |
 | `Ctrl+Shift+F` | search the whole folder |
@@ -39,15 +39,17 @@ Built with Tauri 2 (Rust) and CodeMirror 6.
 | `Ctrl+K` | markdown link from the selection (selected URL → cursor in the text slot) |
 | `Ctrl+Enter` or `Ctrl+Click` | follow `[[wikilink]]` (creates the note if missing) |
 | `Ctrl+Click` on a URL | open it in the default browser |
-| `Alt+←` / `Alt+→` | back / forward through previously opened files (per tab) |
-| `Ctrl+Shift+N` | new tab (middle-click or Ctrl+click a file does the same) |
+| `Alt+←` / `Alt+→` | back / forward through previously opened files (per tab; macOS: `Cmd+[` / `Cmd+]`) |
+| `Ctrl+T` | new tab (middle-click or Ctrl+click a file does the same) |
 | `Ctrl+W` | close tab |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | next / previous tab |
-| `Ctrl+Alt+N` | new window |
+| `Ctrl+Shift+N` | new window |
+| `Ctrl+Shift+\` | split editor (vertical → horizontal → off) |
+| `Alt+Z` or `F11` | zen mode: fullscreen, no chrome, centered column, typewriter scrolling |
 | `Ctrl+=` / `Ctrl+-` | editor font bigger / smaller |
 | `Ctrl+Shift+=` / `Ctrl+Shift+-` | UI font (sidebar, dialogs) bigger / smaller |
 | `Ctrl+0` | reset both font sizes |
-| `Ctrl+,` | open `config.toml` in the editor |
+| `Ctrl+,` | settings panel (config.toml stays hand-editable from there) |
 | `Ctrl+O` | open a different folder |
 | `Ctrl+Shift+O` | switch between recently opened folders |
 | `Ctrl+/` | keyboard shortcut reference (also the `keys` button) |
@@ -56,6 +58,11 @@ Built with Tauri 2 (Rust) and CodeMirror 6.
 Typing `[[` autocompletes against every note in the folder. Markdown is
 parsed as GFM: tables, strikethrough, and task lists — clicking a `[ ]`
 toggles it.
+
+Inside a markdown table, Tab / Shift+Tab hop between cells, Enter moves
+down a row (creating one at the bottom; on an empty last row it leaves the
+table) — and every hop reformats the table: pipes aligned, widths padded,
+`:---` / `:--:` / `---:` alignment kept.
 
 The app-level shortcuts (first block of `Ctrl+/`) are rebindable in the
 `[keys]` section of config.toml; the file documents the format. Editor
@@ -70,12 +77,20 @@ meanwhile, in which case it reloads). Open a file in a new tab with
 middle-click, Ctrl+click, or right-click → *open in new tab*; drag tabs to
 reorder. The main window's tabs are restored on the next launch.
 
+`Ctrl+Shift+\` splits the editor (vertical, then horizontal, then off): the
+second pane is a full editor for one other note — reference it or edit it
+with autosave — while tabs, media views, and the PDF viewer stay in the
+first pane, so reading a PDF while taking notes beside it works. Tree
+clicks and the quick switcher open into whichever pane has focus (media
+always lands in pane 1, and a file already open in the other pane just
+focuses it).
+
 Drag a tab and drop it outside the window to detach it into its own window
 (also: right-click the tab → *move to new window*). Windows are independent —
 they can even show different folders — and edits sync between them through
 the file watcher, with the usual conflict prompt if the same file is edited
-in two places at once. Closing the last tab closes a spawned window; the
-main window just shows an empty tab.
+in two places at once. Closing the last tab always leaves an empty tab —
+closing the window is the window button's job.
 
 ## Files beyond markdown
 
@@ -84,14 +99,15 @@ main window just shows an empty tab.
   file onto a note to copy it into the folder and embed it; paste a
   screenshot from the clipboard and it's saved as `pasted-<date>.png`.
   Where copies land is set by `image_dir` (default: the folder root).
-  The viewer's toolbar rotates and scales (aspect kept), then saves a copy
-  or overwrites the original (overwrite for png/jpg only).
+  The viewer's toolbar rotates and scales (aspect kept; the mouse wheel
+  zooms too), then saves a copy or overwrites the original (overwrite for
+  png/jpg only).
 - **Audio** (mp3/wav/ogg/m4a/flac/opus/…) opens in a built-in player.
 - **CSV/TSV** open as a read-only table (the "edit as text" button in the
   top-right corner toggles back to the raw file).
-- **PDFs** open in a built-in viewer with zoom and lazy page rendering; the
-  text is selectable, so you can copy a passage straight into a note.
-  "open externally" hands the file to the system viewer.
+- **PDFs** open in a built-in viewer with lazy page rendering; zoom with
+  the toolbar or Ctrl+wheel. The text is selectable, so you can copy a
+  passage straight into a note.
 
 In the tree: drag files or folders to move them, right-click for
 rename / copy / paste / duplicate / reveal in file manager / delete
@@ -123,9 +139,18 @@ you can destroy them.
 
 ## Configuration
 
-`~/.config/text/config.toml` — editable in-app with `Ctrl+,`; changes apply
-when you save the file. The file carries a comment header documenting every
-field.
+`Ctrl+,` opens the settings panel: theme and editor font (with live
+preview), font sizes, editor margins, vim mode, daily/image folders, and
+every shortcut — click a binding, press the new keys, conflicts get
+flagged, ↺ resets one to its default.
+
+Margins default small so wide data (tables, code, logs) gets the room it
+needs — size the window for prose, or use zen mode, which centers a
+column regardless.
+
+It all persists to `~/.config/text/config.toml`, which stays hand-editable
+("open config.toml" at the bottom of settings); changes apply when you save
+the file. The file carries a comment header documenting every field.
 
 ```toml
 theme = "text-dark"   # a file stem from the themes folder
@@ -133,6 +158,7 @@ font_size = 15        # editor text (Ctrl+= / Ctrl+-)
 ui_font_size = 13     # sidebar, dialogs (Ctrl+Shift+= / Ctrl+Shift+-)
 editor_font = ""      # editor font stack; "" follows the theme
                       # (Ctrl+Shift+E opens a curated picker)
+editor_margin = 24    # px between the editor text and the window edge
 vim_mode = false      # modal editing via codemirror-vim
 daily_dir = "daily"   # daily notes folder, relative to the notes root
 image_dir = ""        # where dropped/pasted images land, relative to the
@@ -141,7 +167,7 @@ image_dir = ""        # where dropped/pasted images land, relative to the
 [keys]                # rebind app shortcuts: modifiers + key
 search = "ctrl+shift+f"
 daily_note = "ctrl+t"
-# … the default config lists all eighteen actions
+# … the default config lists all twenty actions
 ```
 
 ## Themes
@@ -151,6 +177,11 @@ themes are written there on first run — edit them freely). Copy any file,
 change the colors, and it appears in the picker. An optional `<name>.css`
 beside the TOML is injected verbatim for anything the tokens don't cover.
 The token reference is documented at the top of `text-dark.toml`.
+
+The curated editor fonts (iA Writer Mono/Duo/Quattro, JetBrains Mono,
+IBM Plex Mono/Sans, Fira Code, Inter, Atkinson Hyperlegible, Source Serif,
+Literata — all SIL OFL) ship inside the app, so they work on a fresh
+machine; a locally installed copy of the same family wins when present.
 
 Built-in: Text Dark · Text Light · Night Owl · Monokai Calm · Rosewater ·
 Fjord · Solarized Light · Solarized Dark · Sepia · Nord · Everforest ·
@@ -169,7 +200,21 @@ sudo apt install ./src-tauri/target/release/bundle/deb/text_0.1.0_amd64.deb     
 # or run the AppImage anywhere (no install, ~100MB — bundles its own WebKit)
 ```
 
-Installs as `text` (app menu and terminal). On Wayland the binary disables
+On macOS, `npm run tauri build` on a Mac produces the `.dmg`/`.app` bundle;
+the window uses native decorations with overlay traffic lights there
+(`tauri.macos.conf.json`), and `Cmd` plays the `Ctrl` role in every
+shortcut.
+
+Installs as `text` (app menu and terminal). From a terminal:
+
+```sh
+text                # open the last session
+text notes.md       # open the current folder, with notes.md in the editor
+                    # (the file is created if it doesn't exist)
+text ~/somewhere    # open that folder, default display
+```
+
+On Wayland the binary disables
 WebKitGTK's DMA-BUF renderer itself (it crashes with "Error 71" on some
 compositor/driver combos) — set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to override.
 
@@ -188,13 +233,16 @@ src-tauri/src/      Rust backend (one module per concern)
 src-tauri/templates/share/   page template, site CSS, vendored highlight.js
 src-tauri/themes/   bundled theme files (embedded at compile time)
 src/                frontend (vanilla TS, no framework)
-  main.ts           app shell: tree, tabs, panes, save/conflict flow, shortcuts
+  main.ts           app shell: tree, tabs, split pane, save/conflict flow, shortcuts
   editor.ts         CodeMirror 6 setup, language switching, vim compartment
+  tables.ts         markdown table editing (Tab/Enter navigation, auto-format)
+  settings.ts       the settings panel (Ctrl+,) over config.toml
   mdstyle.ts        markdown line/inline styling, wikilinks, tags, frontmatter
   images.ts         image/audio loading (base64), inline image embeds
   pdf.ts            in-app PDF viewer (pdf.js, lazy-loaded, selectable text)
   share.ts          the share dialog (create/update/destroy links)
   theme.ts          theme tokens → CSS custom properties
+  fonts.ts          bundled editor fonts (fontsource woff2 imports)
   modal.ts          picker / prompt / confirm dialogs
   fuzzy.ts          subsequence scoring for the switcher
 ```

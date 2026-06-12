@@ -7,8 +7,9 @@ use std::fs;
 /// file documents itself (the serializer alone would strip comments).
 const HEADER: &str = r#"# text — config
 #
-# This file is editable in-app (Ctrl+, by default; see [keys]) and applies
-# when saved. Values:
+# Ctrl+, opens the settings panel, which manages this file. It also stays
+# hand-editable ("open config.toml" in settings) and applies when saved.
+# Values:
 #
 #   theme         a file stem from the themes folder (~/.config/text/themes);
 #                 the "theme" key below opens a picker with all of them
@@ -17,6 +18,9 @@ const HEADER: &str = r#"# text — config
 #                 Ctrl+0 resets both)
 #   editor_font   CSS font stack for the editor; "" uses the theme's font.
 #                 The "editor_font" key (Ctrl+Shift+E) opens a curated picker.
+#   editor_margin horizontal space (px) between the editor text and the
+#                 window edge. Small by default so wide data fits; size the
+#                 window to taste. Zen mode centers a column regardless.
 #   vim_mode      modal editing via codemirror-vim
 #   root          last opened notes folder (managed by the app)
 #   recent_roots  folder-switcher history (managed by the app)
@@ -41,6 +45,8 @@ pub struct Config {
     pub ui_font_size: u16,
     /// editor font stack override; "" = use the theme's editor font
     pub editor_font: String,
+    /// horizontal space (px) between the editor text and the window edge
+    pub editor_margin: u16,
     pub vim_mode: bool,
     /// last opened notes folder
     pub root: Option<String>,
@@ -60,7 +66,7 @@ fn default_keys() -> BTreeMap<String, String> {
     [
         ("quick_switch", "ctrl+p"),
         ("new_note", "ctrl+n"),
-        ("daily_note", "ctrl+t"),
+        ("daily_note", "ctrl+shift+d"),
         ("open_folder", "ctrl+o"),
         ("switch_folder", "ctrl+shift+o"),
         ("search", "ctrl+shift+f"),
@@ -71,16 +77,27 @@ fn default_keys() -> BTreeMap<String, String> {
         ("config", "ctrl+,"),
         ("shortcuts", "ctrl+/"),
         ("toggle_sidebar", "ctrl+\\"),
-        ("new_tab", "ctrl+shift+n"),
+        ("new_tab", "ctrl+t"),
         ("close_tab", "ctrl+w"),
         ("next_tab", "ctrl+tab"),
         ("prev_tab", "ctrl+shift+tab"),
-        ("new_window", "ctrl+alt+n"),
+        ("new_window", "ctrl+shift+n"),
+        ("split", "ctrl+shift+\\"),
+        ("zen", "alt+z"),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v.to_string()))
     .collect()
 }
+
+/// (action, old default, new default): stored combos still equal to a
+/// retired default move to the new one on load, so rebound defaults don't
+/// strand users on stale keys (their own custom combos are left alone).
+const KEY_MIGRATIONS: &[(&str, &str, &str)] = &[
+    ("daily_note", "ctrl+t", "ctrl+shift+d"),
+    ("new_tab", "ctrl+shift+n", "ctrl+t"),
+    ("new_window", "ctrl+alt+n", "ctrl+shift+n"),
+];
 
 impl Default for Config {
     fn default() -> Self {
@@ -89,6 +106,7 @@ impl Default for Config {
             font_size: 15,
             ui_font_size: 13,
             editor_font: "".into(),
+            editor_margin: 24,
             vim_mode: false,
             root: None,
             recent_roots: vec![],
@@ -103,10 +121,16 @@ impl Default for Config {
 #[tauri::command]
 pub fn load_config() -> Result<Config, String> {
     let path = config_dir()?.join("config.toml");
-    match fs::read_to_string(&path) {
-        Ok(src) => toml::from_str(&src).map_err(|e| e.to_string()),
-        Err(_) => Ok(Config::default()),
+    let mut config: Config = match fs::read_to_string(&path) {
+        Ok(src) => toml::from_str(&src).map_err(|e| e.to_string())?,
+        Err(_) => Config::default(),
+    };
+    for (action, old, new) in KEY_MIGRATIONS {
+        if config.keys.get(*action).is_some_and(|c| c == old) {
+            config.keys.insert((*action).to_string(), (*new).to_string());
+        }
     }
+    Ok(config)
 }
 
 #[tauri::command]

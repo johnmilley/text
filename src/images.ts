@@ -67,6 +67,44 @@ export function loadImage(path: string): Promise<string> {
 
 export function invalidateImage(path: string) {
   cache.delete(path);
+  invalidateAudio(path);
+}
+
+// ---------------------------------------------------------------- audio
+
+import { convertFileSrc } from "@tauri-apps/api/core";
+
+const audioUrls = new Map<string, string>(); // path → blob object URL
+
+/** Load an audio file as a blob URL. The asset protocol streams fine for
+ * fetch() (pdf.js relies on it), but WebKitGTK's media player can't play
+ * from the custom scheme directly on some systems — a blob URL sidesteps
+ * that. Falls back to reading the bytes over IPC. */
+export async function loadAudio(path: string): Promise<string> {
+  const hit = audioUrls.get(path);
+  if (hit) return hit;
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const type = MIME[ext] ?? "application/octet-stream";
+  let bytes: ArrayBuffer | Uint8Array;
+  try {
+    const res = await fetch(convertFileSrc(path));
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    bytes = await res.arrayBuffer();
+  } catch {
+    const { base64 } = await api.readImage(path); // generic byte read
+    bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  }
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type }));
+  audioUrls.set(path, url);
+  return url;
+}
+
+export function invalidateAudio(path: string) {
+  const url = audioUrls.get(path);
+  if (url) {
+    URL.revokeObjectURL(url);
+    audioUrls.delete(path);
+  }
 }
 
 // ---------------------------------------------------------------- embeds

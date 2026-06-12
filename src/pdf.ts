@@ -181,22 +181,37 @@ function updatePageInfo() {
   $("#pdf-page-info").textContent = `page ${current} / ${doc.numPages}`;
 }
 
-export function initPdfView(openExternal: (path: string) => void) {
-  $("#pdf-shrink").addEventListener("click", () => {
-    zoom = clampZoom(Math.round((zoom - 0.1) * 10) / 10);
-    void relayout();
-  });
-  $("#pdf-grow").addEventListener("click", () => {
-    zoom = clampZoom(Math.round((zoom + 0.1) * 10) / 10);
-    void relayout();
-  });
+export function initPdfView() {
+  const bumpZoom = (delta: number) => {
+    const next = clampZoom(Math.round((zoom + delta) * 10) / 10);
+    if (next === zoom) return;
+    zoom = next;
+    $("#pdf-zoom").textContent = `${Math.round(zoom * 100)}%`;
+    scheduleRelayout();
+  };
+  // re-rendering every page is heavy — batch rapid zoom steps (wheel spins)
+  let zoomTimer: number | undefined;
+  const scheduleRelayout = () => {
+    window.clearTimeout(zoomTimer);
+    zoomTimer = window.setTimeout(() => void relayout(), 150);
+  };
+  $("#pdf-shrink").addEventListener("click", () => bumpZoom(-0.1));
+  $("#pdf-grow").addEventListener("click", () => bumpZoom(0.1));
   $("#pdf-fit").addEventListener("click", () => {
     zoom = 1;
+    $("#pdf-zoom").textContent = "100%";
     void relayout();
   });
-  $("#pdf-external").addEventListener("click", () => {
-    if (docPath) openExternal(docPath);
-  });
+  // Ctrl+wheel zooms (plain wheel keeps scrolling the pages)
+  stage().addEventListener(
+    "wheel",
+    (e) => {
+      if (!e.ctrlKey || !doc) return;
+      e.preventDefault();
+      bumpZoom(e.deltaY < 0 ? 0.1 : -0.1);
+    },
+    { passive: false },
+  );
   stage().addEventListener("scroll", updatePageInfo, { passive: true });
 
   // refit when the stage changes size (window resize, sidebar toggle/drag),

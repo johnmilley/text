@@ -63,6 +63,10 @@ export function setEditorFont(stack: string | null) {
   );
 }
 
+export function setEditorMargin(px: number) {
+  document.documentElement.style.setProperty("--editor-margin", `${px}px`);
+}
+
 export function setFontSize(px: number) {
   document.documentElement.style.setProperty("--editor-font-size", `${px}px`);
 }

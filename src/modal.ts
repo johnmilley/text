@@ -8,7 +8,9 @@ export interface PickerItem {
 
 interface PickerOpts {
   placeholder: string;
-  /** called as the highlighted row changes (e.g. live theme preview) */
+  /** Called as the highlighted row changes (e.g. live theme preview) — but
+   * only after the user actually moves the highlight (keys, hover, typing);
+   * merely opening the picker never fires it. */
   onHighlight?: (item: PickerItem | null) => void;
   /** if set, called with free text when nothing matches and Enter is hit */
   onFreeText?: (text: string) => void;
@@ -51,6 +53,7 @@ export function pick(items: PickerItem[], opts: PickerOpts): Promise<PickerItem 
     let shown: PickerItem[] = [];
     let sel = 0;
     let done = false;
+    let interacted = false; // suppresses onHighlight until the user moves
 
     const finish = (item: PickerItem | null) => {
       if (done) return;
@@ -78,6 +81,7 @@ export function pick(items: PickerItem[], opts: PickerOpts): Promise<PickerItem 
           row.addEventListener("mousemove", () => {
             if (sel !== i) {
               sel = i;
+              interacted = true;
               render();
             }
           });
@@ -95,20 +99,23 @@ export function pick(items: PickerItem[], opts: PickerOpts): Promise<PickerItem 
         list.appendChild(row);
       }
       list.querySelector(".selected")?.scrollIntoView({ block: "nearest" });
-      opts.onHighlight?.(shown[sel] ?? null);
+      if (interacted) opts.onHighlight?.(shown[sel] ?? null);
     };
 
     input.addEventListener("input", () => {
       sel = 0;
+      interacted = true;
       render();
     });
     input.addEventListener("keydown", (e) => {
       if (e.key === "ArrowDown" || (e.key === "n" && e.ctrlKey)) {
         sel = Math.min(sel + 1, shown.length - 1);
+        interacted = true;
         render();
         e.preventDefault();
       } else if (e.key === "ArrowUp" || (e.key === "p" && e.ctrlKey)) {
         sel = Math.max(sel - 1, 0);
+        interacted = true;
         render();
         e.preventDefault();
       } else if (e.key === "Enter") {
