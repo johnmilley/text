@@ -138,6 +138,15 @@ fn normalize(p: &str) -> String {
 
 // ---------------------------------------------------------------- walk
 
+/// Directory names never worth publishing: dependency trees and build output.
+/// Without this, "share a project folder" dumps tens of thousands of files
+/// (node_modules alone) into GitHub Pages, whose build then stalls or fails —
+/// which takes down every share on the site, not just the offending one.
+const IGNORED_DIRS: &[&str] = &[
+    "node_modules", "bower_components", "vendor", "__pycache__",
+    "target", "dist", "build", "out", "coverage",
+];
+
 fn walk(folder: &Path, dir: &Path, depth: usize, files: &mut Vec<SrcFile>, skipped: &mut Vec<String>) -> Result<(), String> {
     if depth > 32 {
         return Ok(());
@@ -151,6 +160,11 @@ fn walk(folder: &Path, dir: &Path, depth: usize, files: &mut Vec<SrcFile>, skipp
         let path = item.path();
         let Ok(ft) = item.file_type() else { continue };
         if ft.is_dir() {
+            if IGNORED_DIRS.contains(&name.as_str()) {
+                let rel = path.strip_prefix(folder).map(|p| p.to_string_lossy().replace('\\', "/"));
+                skipped.push(format!("{}/ (dependency/build directory)", rel.as_deref().unwrap_or(&name)));
+                continue;
+            }
             walk(folder, &path, depth + 1, files, skipped)?;
         } else if ft.is_file() {
             let rel = path
@@ -1131,6 +1145,37 @@ mod tests {
         assert!(note.contains("type=\"checkbox\""), "{note}");
         // sanitized page name, no '#'
         assert!(out.join("weird -name.html").exists());
+        for d in [&src, &out] {
+            let _ = fs::remove_dir_all(d);
+        }
+    }
+
+    #[test]
+    fn skips_dependency_and_build_dirs() {
+        // Regression: sharing a project folder dumped node_modules/dist into
+        // GitHub Pages (21k files), which stalled the Pages build and broke
+        // every share on the site. Those directories must never be published.
+        let src = std::env::temp_dir().join("text-export-skip-src");
+        let out = std::env::temp_dir().join("text-export-skip-out");
+        for d in [&src, &out] {
+            let _ = fs::remove_dir_all(d);
+        }
+        fs::create_dir_all(src.join("node_modules/left-pad")).unwrap();
+        fs::create_dir_all(src.join("dist/assets")).unwrap();
+        fs::create_dir_all(src.join("notes")).unwrap();
+        fs::write(src.join("node_modules/left-pad/index.js"), "module.exports=0\n").unwrap();
+        fs::write(src.join("dist/assets/app.js"), "console.log(1)\n").unwrap();
+        fs::write(src.join("README.md"), "# Project\n").unwrap();
+        fs::write(src.join("notes/idea.md"), "# Idea\n").unwrap();
+
+        let stats = export_site(&src, &out, None).unwrap();
+        assert!(out.join("index.html").exists()); // README → root
+        assert!(out.join("notes/idea.html").exists());
+        // the dependency/build trees are absent and reported as skipped
+        assert!(!out.join("node_modules").exists());
+        assert!(!out.join("dist").exists());
+        assert!(stats.skipped.iter().any(|s| s.contains("node_modules")));
+        assert!(stats.skipped.iter().any(|s| s.contains("dist")));
         for d in [&src, &out] {
             let _ = fs::remove_dir_all(d);
         }
