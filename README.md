@@ -9,6 +9,20 @@ no vault format; the folder is the whole truth.
 
 Built with Tauri 2 (Rust) and CodeMirror 6.
 
+## Contents
+
+- [Folder behavior (Dropbox-friendly)](#folder-behavior-dropbox-friendly)
+- [Keys](#keys)
+- [Tabs and windows](#tabs-and-windows)
+- [Files beyond markdown](#files-beyond-markdown)
+- [Daily notes and dataview](#daily-notes-and-dataview)
+- [Sharing (GitHub Pages)](#sharing-github-pages)
+- [Configuration](#configuration)
+- [Themes](#themes)
+- [Installing](#installing)
+- [Code map](#code-map)
+- [Development](#development)
+
 ## Folder behavior (Dropbox-friendly)
 
 - Saves are atomic (temp file + rename), so a sync never sees a half-written note.
@@ -100,22 +114,35 @@ closing the window is the window button's job.
   screenshot from the clipboard and it's saved as `pasted-<date>.png`.
   Where copies land is set by `image_dir` (default: the folder root).
   The viewer's toolbar rotates and scales (aspect kept; the mouse wheel
-  zooms too), then saves a copy or overwrites the original (overwrite for
-  png/jpg only).
+  zooms too, and you can drag to pan once zoomed in), then saves a copy or
+  overwrites the original (overwrite for png/jpg only).
 - **Audio** (mp3/wav/ogg/m4a/flac/opus/…) opens in a built-in player.
 - **CSV/TSV** open as a read-only table (the "edit as text" button in the
   top-right corner toggles back to the raw file).
 - **PDFs** open in a built-in viewer with lazy page rendering; zoom with
-  the toolbar or Ctrl+wheel. The text is selectable, so you can copy a
-  passage straight into a note.
+  the toolbar or Ctrl+wheel, and type a page number in the toolbar to jump
+  there. The text is selectable, so you can copy a passage straight into a
+  note.
 
 In the tree: drag files or folders to move them, right-click for
 rename / copy / paste / duplicate / reveal in file manager / delete
 (copies that would collide get " copy" appended), ⊟ collapses all folders,
 ↕ cycles the sort (a–z · z–a · newest first; inside the daily folder,
 date-named entries always show latest first). Clicking the folder name
-switches between recently opened folders. Pasting a URL over selected
-text turns it into a markdown link.
+switches between recently opened folders; pin the ones you use most so they
+stay at the top of that list. Pasting a URL over selected text turns it into
+a markdown link, and pasting an image (a screenshot, or one copied from
+elsewhere) drops it into the folder and embeds it.
+
+## Daily notes and dataview
+
+A **calendar** (`Ctrl+Shift+C`) marks days that have a daily note and opens or
+creates one on click; page months with the arrows and years with `«` / `»`
+(or Shift+arrows). Daily notes live at `daily_dir/YYYY/MM/YYYY-MM-DD.md`.
+
+A `dataview` code block renders a live list, table, or open-task roll-up of
+your notes in place — a small subset of the Obsidian plugin. See
+[docs/DATAVIEW.md](docs/DATAVIEW.md) for the query syntax and examples.
 
 ## Sharing (GitHub Pages)
 
@@ -176,7 +203,8 @@ Themes live in `~/.config/text/themes/`, one TOML file each (the built-in
 themes are written there on first run — edit them freely). Copy any file,
 change the colors, and it appears in the picker. An optional `<name>.css`
 beside the TOML is injected verbatim for anything the tokens don't cover.
-The token reference is documented at the top of `text-dark.toml`.
+The token reference is documented at the top of `text-dark.toml`, and
+[docs/THEMES.md](docs/THEMES.md) is a full walkthrough of authoring your own.
 
 The curated editor fonts (iA Writer Mono/Duo/Quattro, JetBrains Mono,
 IBM Plex Mono/Sans, Fira Code, Inter, Atkinson Hyperlegible, Source Serif,
@@ -188,7 +216,8 @@ Fjord · Solarized Light · Solarized Dark · Sepia · Nord · Everforest ·
 Zenburn · Catppuccin (Latte · Frappé · Macchiato · Mocha) · Dracula ·
 Gruvbox · GitHub Light · Tokyo Night · Oceanic Next · Ayu Mirage ·
 Cobalt 2 · Midnight · Dawn · Classic Paper · Dark Academia · iA Writer ·
-Terminal Amber · Cyberpunk Green.
+Terminal Amber · Cyberpunk Green · Gruvbox Light · Everforest Light ·
+Nord Light · Tokyo Day · One Light.
 
 ## Installing
 

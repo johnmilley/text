@@ -8,7 +8,7 @@ import * as api from "./api";
 import "./fonts";
 import { Editor, type NoteRef } from "./editor";
 import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setUiFontSize } from "./theme";
-import { closeModal, confirmBox, infoBox, pick, promptText } from "./modal";
+import { closeModal, confirmBox, infoBox, pick, type PickerItem, promptText } from "./modal";
 import { openSettings } from "./settings";
 import { openShareDialog } from "./share";
 import { bumpPdfZoom, closePdfDoc, initPdfView, isPdfFile, openPdfDoc, resetPdfZoom } from "./pdf";
@@ -66,20 +66,45 @@ interface TabSnap {
   scrollTop: number;
 }
 
+/** A backgrounded tab's split-pane file + editor state (mirrors TabSnap). */
+interface Pane2Snap {
+  path: string;
+  mtime: number | null;
+  dirty: boolean;
+  state: EditorState;
+  scrollTop: number;
+}
+
 interface Tab {
   path: string | null; // null = empty tab (welcome screen)
   back: string[]; // per-tab nav history (Alt+← / Alt+→)
   fwd: string[];
   snap?: TabSnap;
+  // each tab carries its own secondary layout: a split pane (mode + the file
+  // shown there) and whether the markdown preview is open. Restored when the
+  // tab comes back to the foreground.
+  split: "off" | "v" | "h";
+  pane2?: Pane2Snap;
+  previewOn: boolean;
 }
 
-let tabs: Tab[] = [{ path: null, back: [], fwd: [] }];
+const blankTab = (path: string | null = null): Tab => ({
+  path,
+  back: [],
+  fwd: [],
+  split: "off",
+  previewOn: false,
+});
+
+let tabs: Tab[] = [blankTab()];
 let active = 0;
 const tab = () => tabs[active];
 
 // split pane: a second, text-only editor beside (or below) the main pane.
 // Tabs and media views always belong to pane 1; pane 2 is for referencing
-// or editing one other note alongside.
+// or editing one other note alongside. `split`/`pane2*`/preview below are the
+// *currently displayed* secondary state; each tab stashes its own copy on
+// switch (stashSecondary) and restores it on return (restoreSecondary).
 let split: "off" | "v" | "h" = "off";
 let focusedPane: 1 | 2 = 1;
 let editor2: Editor | null = null;
@@ -101,6 +126,43 @@ const rel = (path: string) =>
 const stem = (name: string) => name.replace(/\.[^.]+$/, "");
 
 const isNote = (name: string) => /\.(md|markdown|mdown)$/i.test(name);
+
+// Faint filetype glyphs in the tree (à la VS Code / Scrivener) — just enough
+// to tell notes from images/pdfs/code at a glance. Inner markup per category;
+// the wrapping <svg> and the muted colour come from renderEntry/CSS.
+const ICON_PATHS: Record<string, string> = {
+  note: '<path d="M4 2h6l3 3v9H4z"/><path d="M10 2v3h3" stroke-linejoin="round"/><path d="M6 8h5M6 10.5h5" stroke-linecap="round"/>',
+  image: '<rect x="2.5" y="3.5" width="11" height="9" rx="1"/><circle cx="6" cy="6.5" r="1"/><path d="M3 11l3-2.5 2.5 2 2-1.5L13 11" stroke-linejoin="round"/>',
+  pdf: '<path d="M4 2h6l3 3v9H4z"/><path d="M10 2v3h3" stroke-linejoin="round"/><path d="M6 11.5h4" stroke-linecap="round"/>',
+  audio: '<path d="M6 10V4l6-1.2v6" /><circle cx="4.5" cy="10.5" r="1.6"/><circle cx="10.5" cy="8.8" r="1.6"/>',
+  video: '<rect x="2.5" y="4" width="11" height="8" rx="1"/><path d="M7 6.5l3 1.5-3 1.5z" stroke-linejoin="round"/>',
+  code: '<path d="M6 5.5L3 8l3 2.5M10 5.5L13 8l-3 2.5" stroke-linecap="round" stroke-linejoin="round"/>',
+  file: '<path d="M4 2h6l3 3v9H4z"/><path d="M10 2v3h3" stroke-linejoin="round"/>',
+};
+
+function fileIconKind(name: string): keyof typeof ICON_PATHS {
+  if (isNote(name)) return "note";
+  if (isPdfFile(name)) return "pdf";
+  if (isViewableImage(name) || /\.svg$/i.test(name)) return "image";
+  if (isAudioFile(name)) return "audio";
+  if (isVideoFile(name)) return "video";
+  if (/\.(js|ts|jsx|tsx|py|rs|go|c|h|cpp|java|rb|sh|css|html?|json|toml|ya?ml|sql|lua|php)$/i.test(name))
+    return "code";
+  return "file";
+}
+
+function fileIcon(name: string): SVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "tree-icon");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("width", "13");
+  svg.setAttribute("height", "13");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.2");
+  svg.innerHTML = ICON_PATHS[fileIconKind(name)];
+  return svg;
+}
 
 const isTable = (name: string) => /\.(csv|tsv)$/i.test(name);
 
@@ -197,6 +259,8 @@ function renderEntry(entry: api.Entry, depth: number): HTMLElement {
   if (entry.path === currentPath) row.classList.add("current");
   entryByPath.set(entry.path, entry);
   rowByPath.set(entry.path, row);
+
+  if (!entry.is_dir) row.appendChild(fileIcon(entry.name));
 
   const label = document.createElement("span");
   label.className = "tree-label";
@@ -706,6 +770,82 @@ async function stashActiveTab() {
   ) {
     t.snap = { path: currentPath, mtime: currentMtime ?? -1, dirty, ...editor.snapshot() };
   }
+  await stashSecondary(t);
+}
+
+/** Park the active tab's split + preview state before switching away. Flushes
+ * a dirty split pane to disk so a backgrounded tab never holds unsaved edits
+ * outside its snapshot. */
+async function stashSecondary(t: Tab) {
+  t.split = split;
+  t.previewOn = previewOn();
+  if (split !== "off" && pane2Path && editor2) {
+    if (pane2Dirty) await savePane2();
+    t.pane2 = {
+      path: pane2Path,
+      mtime: pane2Mtime,
+      dirty: pane2Dirty,
+      ...editor2.snapshot(),
+    };
+  } else {
+    t.pane2 = undefined;
+  }
+}
+
+/** Collapse the live secondary layout to nothing — the clean baseline every
+ * `activateTab` starts from. Does not save; callers flush first (stashSecondary
+ * on switch, an explicit savePane2 on close). */
+function teardownSecondary() {
+  window.clearTimeout(pane2SaveTimer);
+  split = "off";
+  pane2Path = null;
+  pane2Mtime = null;
+  pane2Dirty = false;
+  $("#pane2").hidden = true;
+  $("#content").classList.remove("split-h");
+  setPreview(false);
+  setFocusedPane(1);
+}
+
+/** Bring back a tab's split + preview after its pane-1 content is live. */
+async function restoreSecondary(t: Tab) {
+  setPreview(t.previewOn); // renders against the now-current pane-1 note
+  if (t.split === "off") return;
+  split = t.split;
+  $("#content").classList.toggle("split-h", t.split === "h");
+  $("#pane2").hidden = false;
+  ensureEditor2();
+  if (t.pane2) await restorePane2Snap(t.pane2);
+  else emptyPane2();
+  // the tab always drives pane 1; the user clicks into pane 2 to edit there
+}
+
+/** Restore a split-pane snapshot, reconciling with the file on disk the same
+ * way tryRestoreSnap does for pane 1. */
+async function restorePane2Snap(s: Pane2Snap) {
+  const onDisk = await api.statMtime(s.path).catch(() => null);
+  if (onDisk === null) {
+    emptyPane2(); // the file vanished while this tab was backgrounded
+    return;
+  }
+  pane2Path = s.path;
+  const name = s.path.split("/").pop() ?? s.path;
+  if (!s.dirty && onDisk !== s.mtime) {
+    // disk moved on under us and we hold no unsaved edits — take disk
+    const file = await api.readFile(s.path);
+    pane2Mtime = file.mtime;
+    pane2Dirty = false;
+    ensureEditor2().openDoc(file.content, name);
+  } else {
+    pane2Mtime = onDisk;
+    pane2Dirty = s.dirty;
+    ensureEditor2().restoreSnapshot(s, name);
+    if (s.dirty) {
+      window.clearTimeout(pane2SaveTimer);
+      pane2SaveTimer = window.setTimeout(() => void savePane2(), 900);
+    }
+  }
+  $("#pane2-name").textContent = rel(s.path);
 }
 
 /** Restore a stashed snapshot if it still matches the file on disk (or holds
@@ -740,7 +880,10 @@ async function tryRestoreSnap(t: Tab): Promise<boolean> {
  * disk. Never records nav history. */
 async function activateTab() {
   renderTabs();
-  if (focusedPane !== 1) setFocusedPane(1); // tabs always drive pane 1
+  // start from a clean secondary baseline, then restore this tab's own split +
+  // preview once its pane-1 content is live (below). Callers that reach here
+  // without a stash (closeTab) flush the discarded pane 2 themselves.
+  teardownSecondary();
   const t = tab();
   navigating = true;
   try {
@@ -759,6 +902,7 @@ async function activateTab() {
   } finally {
     navigating = false;
   }
+  await restoreSecondary(t);
 }
 
 async function switchTab(i: number) {
@@ -771,7 +915,7 @@ async function switchTab(i: number) {
 /** Open a new tab right of the active one, on `path` or empty. */
 async function newTab(path?: string) {
   await stashActiveTab();
-  tabs.splice(active + 1, 0, { path: path ?? null, back: [], fwd: [] });
+  tabs.splice(active + 1, 0, blankTab(path ?? null));
   active++;
   await activateTab();
 }
@@ -780,11 +924,14 @@ async function closeTab(i: number) {
   if (!tabs[i]) return;
   // a failed/conflicted save keeps the tab open — closing would lose edits
   if (i === active && dirty && !(await save()) && dirty) return;
+  // flush the active tab's split pane before it's discarded (backgrounded tabs
+  // were already flushed when they were stashed)
+  if (i === active && split !== "off" && pane2Dirty) await savePane2();
   tabs.splice(i, 1);
   if (!tabs.length) {
     // last tab: every window keeps an empty tab — closing the window is the
     // window button's job, never a surprise side effect of closing a tab
-    tabs.push({ path: null, back: [], fwd: [] });
+    tabs.push(blankTab());
     active = 0;
     return activateTab();
   }
@@ -805,6 +952,7 @@ async function closeOtherTabs(i: number) {
   const wasActive = tabs[active] === keep;
   // discarding the active tab with a failed save would lose edits
   if (!wasActive && dirty && !(await save()) && dirty) return;
+  if (!wasActive && split !== "off" && pane2Dirty) await savePane2();
   tabs = [keep];
   active = 0;
   if (wasActive) renderTabs();
@@ -841,6 +989,7 @@ function remapTabs(from: string, to: string) {
   for (const t of tabs) {
     t.path = remap(t.path);
     if (t.snap) t.snap.path = remap(t.snap.path)!;
+    if (t.pane2) t.pane2.path = remap(t.pane2.path)!;
   }
   pane2Path = remap(pane2Path);
   if (pane2Path) $("#pane2-name").textContent = rel(pane2Path);
@@ -1287,6 +1436,8 @@ function hidePdfView() {
 
 let imgRotation = 0; // degrees, multiples of 90
 let imgScale = 1;
+let imgPanX = 0; // screen-px pan offset, only meaningful while zoomed in
+let imgPanY = 0;
 
 function imageEdited() {
   return imgRotation % 360 !== 0 || imgScale !== 1;
@@ -1295,13 +1446,21 @@ function imageEdited() {
 function resetImageTools() {
   imgRotation = 0;
   imgScale = 1;
+  imgPanX = imgPanY = 0;
   applyImageTools();
 }
 
 function applyImageTools() {
   const img = $<HTMLImageElement>("#image-view img");
-  img.style.transform =
-    imgRotation || imgScale !== 1 ? `rotate(${imgRotation}deg) scale(${imgScale})` : "";
+  // panning only applies while zoomed in; collapse it back otherwise
+  if (imgScale <= 1) imgPanX = imgPanY = 0;
+  // translate is in screen space so it goes before rotate/scale
+  const parts: string[] = [];
+  if (imgPanX || imgPanY) parts.push(`translate(${imgPanX}px, ${imgPanY}px)`);
+  if (imgRotation) parts.push(`rotate(${imgRotation}deg)`);
+  if (imgScale !== 1) parts.push(`scale(${imgScale})`);
+  img.style.transform = parts.join(" ");
+  img.classList.toggle("pannable", imgScale > 1);
   $("#img-scale").textContent = `${Math.round(imgScale * 100)}%`;
   const edited = imageEdited();
   $("#img-reset").hidden = !edited;
@@ -2186,8 +2345,9 @@ async function openRoot(path: string) {
   root = path;
   $("#folder-name").textContent = path.split("/").pop() ?? path;
   if (switching) {
-    tabs = [{ path: null, back: [], fwd: [] }];
+    tabs = [blankTab()];
     active = 0;
+    teardownSecondary(); // a new folder starts with no split/preview carried over
     closeCurrent();
   }
   await refreshTree();
@@ -2223,7 +2383,7 @@ async function restoreSession() {
     paths = last && exists(last) ? [last] : [];
   }
   if (!paths.length) return openFirstFile();
-  tabs = paths.map((p) => ({ path: p, back: [], fwd: [] }));
+  tabs = paths.map((p) => blankTab(p));
   active = Math.min(
     Math.max(Number(localStorage.getItem("text.activeTab")) || 0, 0),
     tabs.length - 1,
@@ -2238,15 +2398,40 @@ async function chooseFolder() {
   if (!currentPath) await openFirstFile();
 }
 
-/** Quick switcher over recently opened folders (personal / work / projects). */
+/** Quick switcher over recently opened folders (personal / work / projects).
+ * Pinned folders sort to the top and persist even after they age out of the
+ * recent history; each row carries an inline pin/unpin toggle. */
 async function switchFolder() {
-  const items = config.recent_roots.map((r) => ({
+  const pinned = config.pinned_roots;
+  const folderRow = (r: string) => ({
     label: r.split("/").pop() || r,
     detail: r === root ? `${r} (current)` : r,
     value: r,
-  }));
-  items.push({ label: "browse…", detail: "pick another folder", value: "" });
-  const chosen = await pick(items, { placeholder: "switch folder…" });
+    actionLabel: pinned.includes(r) ? "unpin" : "pin",
+    actionTitle: pinned.includes(r) ? "Remove from pinned" : "Keep at the top of this list",
+  });
+  // pinned first (in pin order), then recents that aren't already pinned
+  const build = (): PickerItem[] => {
+    const rows: PickerItem[] = [
+      ...config.pinned_roots.map(folderRow),
+      ...config.recent_roots.filter((r) => !config.pinned_roots.includes(r)).map(folderRow),
+    ];
+    rows.push({ label: "browse…", detail: "pick another folder", value: "" });
+    return rows;
+  };
+  const items = build();
+  const chosen = await pick(items, {
+    placeholder: "switch folder…",
+    onAction: (item) => {
+      if (!item.value) return;
+      const i = config.pinned_roots.indexOf(item.value);
+      if (i >= 0) config.pinned_roots.splice(i, 1);
+      else config.pinned_roots.push(item.value);
+      void api.saveConfig(config);
+      // rebuild the rows in place so the picker's re-render reflects the change
+      items.splice(0, items.length, ...build());
+    },
+  });
   if (!chosen) return;
   if (!chosen.value) return void chooseFolder();
   if (chosen.value !== root) {
@@ -2591,6 +2776,50 @@ async function init() {
   $("#img-reset").addEventListener("click", resetImageTools);
   $("#img-save-copy").addEventListener("click", () => void saveImageCopy());
   $("#img-overwrite").addEventListener("click", () => void overwriteImage());
+
+  // drag to pan when zoomed in. The pan is clamped to roughly the extent the
+  // scaled image overflows its stage, so it can't be flung off-screen.
+  {
+    const stageEl = $("#image-stage");
+    const imgEl = $<HTMLImageElement>("#image-view img");
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    const clampPan = () => {
+      const stageRect = stageEl.getBoundingClientRect();
+      // base (unzoomed) rendered size = scaled rect divided by current scale
+      const baseW = imgEl.offsetWidth;
+      const baseH = imgEl.offsetHeight;
+      const overflowX = Math.max(0, (baseW * imgScale - stageRect.width) / 2 + 24);
+      const overflowY = Math.max(0, (baseH * imgScale - stageRect.height) / 2 + 24);
+      imgPanX = Math.min(overflowX, Math.max(-overflowX, imgPanX));
+      imgPanY = Math.min(overflowY, Math.max(-overflowY, imgPanY));
+    };
+    imgEl.addEventListener("pointerdown", (e) => {
+      if (imgScale <= 1 || e.button !== 0) return;
+      dragging = true;
+      startX = e.clientX - imgPanX;
+      startY = e.clientY - imgPanY;
+      imgEl.setPointerCapture(e.pointerId);
+      imgEl.classList.add("panning");
+      e.preventDefault();
+    });
+    imgEl.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      imgPanX = e.clientX - startX;
+      imgPanY = e.clientY - startY;
+      clampPan();
+      applyImageTools();
+    });
+    const endDrag = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      imgEl.classList.remove("panning");
+      if (imgEl.hasPointerCapture(e.pointerId)) imgEl.releasePointerCapture(e.pointerId);
+    };
+    imgEl.addEventListener("pointerup", endDrag);
+    imgEl.addEventListener("pointercancel", endDrag);
+  }
   $("#btn-collapse").addEventListener("click", () => {
     expanded.clear();
     localStorage.setItem("text.expanded", "[]");

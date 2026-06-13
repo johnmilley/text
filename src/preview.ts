@@ -70,6 +70,8 @@ export function refreshPreview() {
 async function render() {
   const body = $("#preview-body");
   const path = host.getPath();
+  // the bar names the note being previewed (mirrors the split pane's bar)
+  $("#preview-name").textContent = path ? (path.split("/").pop() ?? "preview") : "preview";
   if (!path || !host.isMarkdownish(path)) {
     body.replaceChildren();
     const hint = document.createElement("div");

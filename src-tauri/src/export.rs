@@ -554,15 +554,24 @@ fn datish(name: &str) -> bool {
 
 /// Order names like the app tree: alphabetical, but date-shaped names
 /// (daily notes: YYYY / MM / YYYY-MM-DD) newest first.
+///
+/// Dates and plain names are kept as two separate groups (dates first) rather
+/// than interleaved. Interleaving them was the bug: dates compared descending
+/// while date-vs-plain compared ascending, which isn't a total order (you could
+/// get D1 < N < D2 < D1), and Rust's sort panics on a broken comparator.
+fn name_order(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (datish(a), datish(b)) {
+        (true, true) => b.cmp(a),                                  // dates: newest first
+        (false, false) => a.to_lowercase().cmp(&b.to_lowercase()), // plain: A–Z
+        (true, false) => Ordering::Less,                           // dates group leads
+        (false, true) => Ordering::Greater,
+    }
+}
+
 fn ordered<'a, T>(items: impl Iterator<Item = (&'a String, T)>) -> Vec<(&'a String, T)> {
     let mut v: Vec<(&String, T)> = items.collect();
-    v.sort_by(|a, b| {
-        if datish(a.0) && datish(b.0) {
-            b.0.cmp(a.0)
-        } else {
-            a.0.to_lowercase().cmp(&b.0.to_lowercase())
-        }
-    });
+    v.sort_by(|a, b| name_order(a.0, b.0));
     v
 }
 
@@ -584,13 +593,7 @@ fn nav_html(node: &NavDir, current: &str, prefix: &str, out: &mut String) {
         out.push_str("</details></li>");
     }
     let mut files: Vec<&(String, String)> = node.files.iter().collect();
-    files.sort_by(|a, b| {
-        if datish(&a.0) && datish(&b.0) {
-            b.0.cmp(&a.0)
-        } else {
-            a.0.to_lowercase().cmp(&b.0.to_lowercase())
-        }
-    });
+    files.sort_by(|a, b| name_order(&a.0, &b.0));
     for (display, out_rel) in files {
         let class = if out_rel == current { " class=\"current\"" } else { "" };
         out.push_str(&format!(
@@ -616,13 +619,7 @@ fn listing_html(dir_out: &str, node: &NavDir, title: &str) -> String {
         ));
     }
     let mut files: Vec<&(String, String)> = node.files.iter().collect();
-    files.sort_by(|a, b| {
-        if datish(&a.0) && datish(&b.0) {
-            b.0.cmp(&a.0)
-        } else {
-            a.0.to_lowercase().cmp(&b.0.to_lowercase())
-        }
-    });
+    files.sort_by(|a, b| name_order(&a.0, &b.0));
     let dir_prefix = if dir_out.is_empty() { String::new() } else { format!("{dir_out}/") };
     for (display, out_rel) in files {
         // listing links are relative to the listing's own directory
@@ -1024,6 +1021,33 @@ mod tests {
                 .map(|(r, k)| SrcFile { rel: (*r).to_string(), kind: *k })
                 .collect(),
         )
+    }
+
+    #[test]
+    fn name_order_is_a_total_order() {
+        // Regression: the old comparator interleaved descending dates with
+        // ascending plain names, which isn't a total order — sorting a folder
+        // that mixed the two panicked ("does not correctly implement a total
+        // order") and broke share/export. This set includes the cycle that
+        // triggered it (a plain name lexically between two dates).
+        let mut names: Vec<String> = [
+            "2020-12-31",
+            "notes",
+            "2020-01-01",
+            "2020-06-15x", // plain (trailing x), sorts between the two dates
+            "Archive",
+            "2019-05-05",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        // must not panic, and must be self-consistent
+        names.sort_by(|a, b| name_order(a, b));
+        // dates lead, newest first; plain names follow, A–Z (case-insensitive)
+        assert_eq!(
+            names,
+            vec!["2020-12-31", "2020-01-01", "2019-05-05", "2020-06-15x", "Archive", "notes"],
+        );
     }
 
     #[test]

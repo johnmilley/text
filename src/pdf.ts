@@ -178,7 +178,18 @@ function updatePageInfo() {
     if (p.offsetTop > top) break;
     current = Number(p.dataset.page);
   }
-  $("#pdf-page-info").textContent = `page ${current} / ${doc.numPages}`;
+  const input = $<HTMLInputElement>("#pdf-page-input");
+  // don't fight the user while they're typing a target page
+  if (document.activeElement !== input) input.value = String(current);
+  $("#pdf-page-total").textContent = `/ ${doc.numPages}`;
+}
+
+/** Scroll a 1-based page number to the top of the stage. */
+function goToPage(n: number) {
+  if (!doc) return;
+  const clamped = Math.min(doc.numPages, Math.max(1, Math.floor(n)));
+  const div = pages[clamped - 1];
+  if (div) stage().scrollTo({ top: div.offsetTop - 8 });
 }
 
 // re-rendering every page is heavy — batch rapid zoom steps (wheel spins,
@@ -212,6 +223,20 @@ export function initPdfView() {
   $("#pdf-shrink").addEventListener("click", () => bumpZoom(-0.1));
   $("#pdf-grow").addEventListener("click", () => bumpZoom(0.1));
   $("#pdf-fit").addEventListener("click", resetPdfZoom);
+  // jump to a typed page on Enter; revert to the live page on Escape/blur
+  const pageInput = $<HTMLInputElement>("#pdf-page-input");
+  pageInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const n = Number(pageInput.value.trim());
+      if (Number.isFinite(n)) goToPage(n);
+      pageInput.blur();
+    } else if (e.key === "Escape") {
+      pageInput.blur();
+    }
+    e.stopPropagation(); // keep editor/global shortcuts out of the field
+  });
+  pageInput.addEventListener("focus", () => pageInput.select());
+  pageInput.addEventListener("blur", updatePageInfo);
   // Ctrl+wheel zooms (plain wheel keeps scrolling the pages)
   stage().addEventListener(
     "wheel",

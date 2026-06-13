@@ -26,6 +26,7 @@ const HEADER: &str = r#"# text — config
 #   vim_mode      modal editing via codemirror-vim
 #   root          last opened notes folder (managed by the app)
 #   recent_roots  folder-switcher history (managed by the app)
+#   pinned_roots  folders kept at the top of the switcher (pin/unpin there)
 #   daily_dir     daily notes folder, relative to the root
 #                 (notes are created as daily_dir/YYYY/MM/YYYY-MM-DD.md)
 #   image_dir     where dropped/pasted images land, relative to the root
@@ -58,6 +59,8 @@ pub struct Config {
     pub root: Option<String>,
     /// recently opened folders, newest first (for the folder switcher)
     pub recent_roots: Vec<String>,
+    /// folders pinned to the top of the folder switcher (managed by the app)
+    pub pinned_roots: Vec<String>,
     /// folder for daily notes, relative to the notes root
     pub daily_dir: String,
     /// where dropped/pasted images land, relative to the notes root
@@ -121,6 +124,7 @@ impl Default for Config {
             vim_mode: false,
             root: None,
             recent_roots: vec![],
+            pinned_roots: vec![],
             daily_dir: "daily".into(),
             image_dir: "".into(),
             sidebar_width: 240,

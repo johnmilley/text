@@ -82,8 +82,13 @@ export function openCalendar(host: CalendarHost) {
       while (month > 11) (month -= 12), year++;
       render();
     };
+    const shiftYear = (by: number) => {
+      year += by;
+      render();
+    };
 
     head.append(
+      nav("«", "previous year", () => shiftYear(-1)),
       nav("‹", "previous month", () => shift(-1)),
       title,
       nav("today", "back to this month", () => {
@@ -92,14 +97,18 @@ export function openCalendar(host: CalendarHost) {
         render();
       }),
       nav("›", "next month", () => shift(1)),
+      nav("»", "next year", () => shiftYear(1)),
     );
     box.append(head, grid);
     render();
 
     box.tabIndex = -1;
+    // arrows page months; Shift+arrows (and PageUp/Down) page years
     box.addEventListener("keydown", (e) => {
-      if (e.key === "PageUp" || e.key === "ArrowLeft") shift(-1);
-      else if (e.key === "PageDown" || e.key === "ArrowRight") shift(1);
+      if (e.key === "ArrowLeft") e.shiftKey ? shiftYear(-1) : shift(-1);
+      else if (e.key === "ArrowRight") e.shiftKey ? shiftYear(1) : shift(1);
+      else if (e.key === "PageUp") shiftYear(-1);
+      else if (e.key === "PageDown") shiftYear(1);
     });
     box.focus();
   });

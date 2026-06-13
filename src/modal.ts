@@ -4,6 +4,10 @@ export interface PickerItem {
   label: string;
   detail?: string;
   value: string;
+  /** label for an inline action button on the row (e.g. "pin"/"unpin") */
+  actionLabel?: string;
+  /** tooltip for the action button */
+  actionTitle?: string;
 }
 
 interface PickerOpts {
@@ -15,6 +19,9 @@ interface PickerOpts {
   /** if set, called with free text when nothing matches and Enter is hit */
   onFreeText?: (text: string) => void;
   freeTextHint?: string;
+  /** invoked when a row's inline action button is clicked. May mutate the
+   * `items` array in place; the picker re-renders afterwards. */
+  onAction?: (item: PickerItem) => void;
 }
 
 let openModal: (() => void) | null = null;
@@ -77,6 +84,20 @@ export function pick(items: PickerItem[], opts: PickerOpts): Promise<PickerItem 
             detail.className = "modal-detail";
             detail.textContent = item.detail;
             row.appendChild(detail);
+          }
+          if (item.actionLabel && opts.onAction) {
+            const btn = document.createElement("button");
+            btn.className = "modal-row-action";
+            btn.textContent = item.actionLabel;
+            if (item.actionTitle) btn.title = item.actionTitle;
+            // act without choosing the row; let the caller mutate items, then redraw
+            btn.addEventListener("mousedown", (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              opts.onAction!(item);
+              render();
+            });
+            row.appendChild(btn);
           }
           row.addEventListener("mousemove", () => {
             if (sel !== i) {

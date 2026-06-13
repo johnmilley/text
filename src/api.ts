@@ -46,6 +46,7 @@ export interface Config {
   vim_mode: boolean;
   root: string | null;
   recent_roots: string[];
+  pinned_roots: string[];
   daily_dir: string;
   image_dir: string;
   sidebar_width: number;

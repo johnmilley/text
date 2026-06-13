@@ -164,9 +164,29 @@ button:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 6px;
+  margin: -2px -2px -2px -4px;
+  border-radius: 5px;
+  font-weight: 600;
+  transition: background 0.12s, color 0.12s;
+}
+/* a small caret marks it as a switcher you can click open */
+#folder-name::after {
+  content: "▾";
+  flex: none;
+  font-size: 0.85em;
+  opacity: 0.55;
 }
 #folder-name:hover {
   color: var(--fg);
+  background: var(--bg-hover);
+}
+#folder-name:hover::after {
+  opacity: 1;
 }
 .row-actions {
   display: flex;
@@ -202,6 +222,16 @@ button:hover {
 }
 .tree-row.dir {
   color: var(--fg-muted);
+}
+.tree-icon {
+  flex: none;
+  vertical-align: -2px;
+  margin-right: 5px;
+  opacity: 0.4;
+}
+.tree-row:hover .tree-icon,
+.tree-row.current .tree-icon {
+  opacity: 0.75;
 }
 .tree-row:hover {
   background: var(--bg-hover);
@@ -348,7 +378,8 @@ button:hover {
   color: var(--fg);
   box-shadow: inset 0 2px 0 var(--accent);
 }
-#pane2-name {
+#pane2-name,
+#preview-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -647,6 +678,12 @@ button:hover {
   box-shadow: 0 2px 16px rgba(0, 0, 0, 0.25);
   border-radius: 3px;
 }
+#image-view img.pannable {
+  cursor: grab;
+}
+#image-view img.panning {
+  cursor: grabbing;
+}
 
 #audio-view {
   position: absolute;
@@ -746,6 +783,29 @@ button:hover {
 #pdf-zoom {
   font-family: var(--font-editor);
   font-size: 0.9em;
+}
+#pdf-page-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+#pdf-page-input {
+  width: 3.5ch;
+  text-align: center;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 2px;
+}
+#pdf-page-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+/* hide the number-spinner that some engines add for inputmode=numeric */
+#pdf-page-input::-webkit-inner-spin-button {
+  appearance: none;
 }
 #pdf-zoom {
   min-width: 4ch;
@@ -896,9 +956,24 @@ body.tree-dragging * {
   background: var(--bg-hover);
 }
 .modal-row .modal-detail {
+  flex: 1;
+  text-align: right;
   color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.modal-row-action {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 8px;
+  color: var(--fg-muted);
+  background: transparent;
+  font-size: 0.85em;
+}
+.modal-row-action:hover {
+  color: var(--fg);
+  border-color: var(--accent);
 }
 .modal-buttons {
   display: flex;

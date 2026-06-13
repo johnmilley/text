@@ -347,8 +347,15 @@ export class Editor {
         },
         paste: (event, view) => {
           if (!this.markdownish || !event.clipboardData) return false;
-          // a clipboard image (screenshot) — save it and embed
-          const image = [...event.clipboardData.files].find((f) => f.type.startsWith("image/"));
+          // a clipboard image — screenshots arrive in .files, while images
+          // copied from file managers / browsers often only appear in .items
+          const cb = event.clipboardData;
+          const image =
+            [...cb.files].find((f) => f.type.startsWith("image/")) ??
+            [...cb.items]
+              .find((it) => it.kind === "file" && it.type.startsWith("image/"))
+              ?.getAsFile() ??
+            null;
           if (image) {
             event.preventDefault();
             void cbs.importImageBlob(image).then((name) => {

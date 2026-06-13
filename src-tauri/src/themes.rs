@@ -36,6 +36,11 @@ const BUNDLED: &[(&str, &str)] = &[
     ("ia-writer", include_str!("../themes/ia-writer.toml")),
     ("terminal-amber", include_str!("../themes/terminal-amber.toml")),
     ("cyberpunk-green", include_str!("../themes/cyberpunk-green.toml")),
+    ("gruvbox-light", include_str!("../themes/gruvbox-light.toml")),
+    ("everforest-light", include_str!("../themes/everforest-light.toml")),
+    ("nord-light", include_str!("../themes/nord-light.toml")),
+    ("tokyo-day", include_str!("../themes/tokyo-day.toml")),
+    ("one-light", include_str!("../themes/one-light.toml")),
 ];
 
 pub fn config_dir() -> Result<PathBuf, String> {

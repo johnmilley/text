@@ -94,7 +94,11 @@
           <div id="pdf-tools">
             <span id="pdf-name"></span>
             <span class="tools-sep"></span>
-            <span id="pdf-page-info"></span>
+            <span id="pdf-page-info">
+              page
+              <input id="pdf-page-input" type="text" inputmode="numeric" title="Type a page number and press Enter" />
+              <span id="pdf-page-total"></span>
+            </span>
             <span class="tools-sep"></span>
             <button id="pdf-shrink" title="Zoom out">−</button>
             <span id="pdf-zoom" title="Zoom (relative to page width)">100%</span>
@@ -125,7 +129,7 @@
         <!-- rendered markdown preview (Ctrl+Shift+M) -->
         <div id="preview" hidden>
           <div id="preview-bar">
-            <span>preview</span>
+            <span id="preview-name">preview</span>
             <button id="preview-close" title="Close preview (Ctrl+Shift+M)">×</button>
           </div>
           <div id="preview-body"></div>

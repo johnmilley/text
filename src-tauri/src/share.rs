@@ -8,12 +8,22 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Serializes all shares-repo mutations (startup cleanup vs. dialog actions).
 static REPO_LOCK: Mutex<()> = Mutex::new(());
+
+/// Take the shares lock, tolerating a poisoned mutex. Every share op returns
+/// `Result` and the lock guards only filesystem/git side effects (which are
+/// re-synced from the remote on each call via `sync_repo`), so if an earlier
+/// op panicked while holding the lock there's no broken in-memory invariant to
+/// protect — recover the guard instead of letting `unwrap()` cascade the panic
+/// into every later share attempt (was the "PoisonError" the dialog reported).
+fn repo_lock() -> std::sync::MutexGuard<'static, ()> {
+    REPO_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 const REPO_NAME: &str = "text-shares";
 
@@ -87,6 +97,14 @@ fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<String, Strin
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
+    // Never let a subprocess sit waiting on a prompt. Without a terminal a
+    // credential prompt blocks forever (the "share just hangs" symptom), so we
+    // close stdin and tell git/Git Credential Manager to fail instead of ask.
+    // Auth still works: the local clone uses gh as its credential helper
+    // (see ensure_repo), which is non-interactive.
+    cmd.stdin(Stdio::null());
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    cmd.env("GCM_INTERACTIVE", "never");
     let out = cmd
         .output()
         .map_err(|e| format!("could not run {program}: {e}"))?;
@@ -153,6 +171,15 @@ fn ensure_repo() -> Result<(PathBuf, String), String> {
     // repo-local identity so commits work without global git config
     run("git", &["config", "user.name", "text"], Some(&local))?;
     run("git", &["config", "user.email", "text@localhost"], Some(&local))?;
+
+    // Authenticate HTTPS push/fetch through gh, scoped to this clone (like
+    // `gh auth setup-git`). Without this, push to a private/own repo falls back
+    // to a credential prompt — which, with no terminal, hangs forever. Reset
+    // any inherited helper first, then add gh's, so it's the only one and the
+    // setup stays idempotent across runs.
+    let key = "credential.https://github.com.helper";
+    let _ = run("git", &["config", "--local", "--replace-all", key, ""], Some(&local));
+    run("git", &["config", "--local", "--add", key, "!gh auth git-credential"], Some(&local))?;
 
     // brand-new repo: seed a first commit so main exists to push onto
     if run("git", &["rev-parse", "HEAD"], Some(&local)).is_err() {
@@ -298,7 +325,7 @@ fn create_share_impl(
     if !src.is_dir() {
         return Err(format!("{folder} is not a folder"));
     }
-    let _guard = REPO_LOCK.lock().unwrap();
+    let _guard = repo_lock();
     let reg = load_registry()?;
     if reg.shares.iter().any(|s| s.folder == folder) {
         return Err("this folder is already shared — use update instead".into());
@@ -333,7 +360,7 @@ fn update_share_impl(folder: String) -> Result<ShareResult, String> {
     if !src.is_dir() {
         return Err(format!("{folder} no longer exists"));
     }
-    let _guard = REPO_LOCK.lock().unwrap();
+    let _guard = repo_lock();
     let reg = load_registry()?;
     let entry = reg
         .shares
@@ -349,7 +376,7 @@ fn update_share_impl(folder: String) -> Result<ShareResult, String> {
 }
 
 fn destroy_share_impl(folder: String) -> Result<(), String> {
-    let _guard = REPO_LOCK.lock().unwrap();
+    let _guard = repo_lock();
     let reg = load_registry()?;
     let entry = reg
         .shares
@@ -381,7 +408,7 @@ fn cleanup_expired_impl() -> Result<Vec<String>, String> {
     if expired.is_empty() {
         return Ok(vec![]);
     }
-    let _guard = REPO_LOCK.lock().unwrap();
+    let _guard = repo_lock();
     let (local, _) = ensure_repo()?;
     sync_repo(&local)?;
     for s in &expired {
