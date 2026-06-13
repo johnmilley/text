@@ -3,6 +3,7 @@ import {
   drawSelection,
   highlightActiveLine,
   keymap,
+  lineNumbers,
 } from "@codemirror/view";
 import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -19,6 +20,7 @@ import { vim } from "@replit/codemirror-vim";
 import { baseHighlighting, markdownStyling, toggleCheckboxAt, urlAt, wikilinkAt } from "./mdstyle";
 import { imageEmbeds, type ImageResolver } from "./images";
 import { tableNextCell, tableNextRow, tablePrevCell } from "./tables";
+import { dataviewBlocks, type DataviewHost } from "./dataview";
 
 export interface NoteRef {
   name: string; // file name without extension
@@ -38,6 +40,8 @@ export interface EditorCallbacks {
   importImageBlob: (blob: File) => Promise<string | null>;
   onNavBack: () => void;
   onNavForward: () => void;
+  /** data + navigation for `dataview` query blocks (omit to disable) */
+  dataview?: DataviewHost;
 }
 
 /** Files that get markdown styling, embeds, and link shortcuts. */
@@ -81,6 +85,13 @@ const cmTheme = EditorView.theme({
     caretColor: "var(--cursor)",
   },
   "&.cm-focused": { outline: "none" },
+  ".cm-gutters": {
+    backgroundColor: "var(--bg)",
+    color: "var(--fg-muted)",
+    border: "none",
+    paddingLeft: "6px",
+  },
+  ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--fg)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--cursor)" },
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground":
     { background: "var(--selection)" },
@@ -128,6 +139,16 @@ function wikiCompletions(getNotes: () => NoteRef[]) {
         },
       })),
     };
+  };
+}
+
+/** Wrap the selection in `marker` when something is selected; with an empty
+ * selection the keypress falls through and types the character normally
+ * (regular markdown editor behaviour for `, like Ctrl+B/I for **‍/*). */
+function wrapIfSelected(marker: string) {
+  return (view: EditorView): boolean => {
+    if (view.state.selection.ranges.every((r) => r.empty)) return false;
+    return toggleWrap(marker)(view);
   };
 }
 
@@ -209,9 +230,13 @@ export class Editor {
   private lang = new Compartment();
   private vimMode = new Compartment();
   private typewriter = new Compartment();
+  private lineNos = new Compartment();
+  private activeLine = new Compartment();
   private callbacks: EditorCallbacks;
   private vimOn = false;
   private typewriterOn = false;
+  private lineNumbersOn = false;
+  private highlightLineOn = true;
   private currentFile = "";
   private markdownish = true;
 
@@ -234,7 +259,8 @@ export class Editor {
       history(),
       drawSelection(),
       EditorView.lineWrapping,
-      highlightActiveLine(),
+      this.lineNos.of(this.lineNumbersOn ? lineNumbers() : []),
+      this.activeLine.of(this.highlightLineOn ? highlightActiveLine() : []),
       highlightSelectionMatches(),
       autocompletion({ override: [wikiCompletions(cbs.getNotes)], icons: false }),
       keymap.of([
@@ -249,6 +275,8 @@ export class Editor {
         { key: "Mod-i", run: toggleWrap("*") },
         { key: "Mod-Shift-x", run: (view) => this.markdownish && toggleWrap("~~")(view) },
         { key: "Mod-k", run: (view) => this.markdownish && insertLink(view) },
+        // ` around a selection makes it inline code (empty selection types `)
+        { key: "`", run: (view) => this.markdownish && wrapIfSelected("`")(view) },
         ...[1, 2, 3, 4, 5, 6].map((level) => ({
           key: `Mod-${level}`,
           run: (view: EditorView) => this.markdownish && setHeading(level)(view),
@@ -379,6 +407,15 @@ export class Editor {
     this.view.setState(snap.state);
     this.currentFile = filename;
     this.markdownish = isMarkdownish(filename);
+    // the snapshot froze the compartments as they were when stashed — bring
+    // them back in line with the current settings
+    this.view.dispatch({
+      effects: [
+        this.lineNos.reconfigure(this.lineNumbersOn ? lineNumbers() : []),
+        this.activeLine.reconfigure(this.highlightLineOn ? highlightActiveLine() : []),
+        this.vimMode.reconfigure(this.vimOn ? vim() : []),
+      ],
+    });
     requestAnimationFrame(() => {
       this.view.scrollDOM.scrollTop = snap.scrollTop;
     });
@@ -392,6 +429,7 @@ export class Editor {
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           markdownStyling(),
           imageEmbeds(this.callbacks.resolveImage),
+          this.callbacks.dataview ? dataviewBlocks(this.callbacks.dataview) : [],
         ]),
       });
       return;
@@ -431,6 +469,20 @@ export class Editor {
     if (on === this.vimOn) return;
     this.vimOn = on;
     this.view.dispatch({ effects: this.vimMode.reconfigure(on ? vim() : []) });
+  }
+
+  setLineNumbers(on: boolean) {
+    if (on === this.lineNumbersOn) return;
+    this.lineNumbersOn = on;
+    this.view.dispatch({ effects: this.lineNos.reconfigure(on ? lineNumbers() : []) });
+  }
+
+  setHighlightLine(on: boolean) {
+    if (on === this.highlightLineOn) return;
+    this.highlightLineOn = on;
+    this.view.dispatch({
+      effects: this.activeLine.reconfigure(on ? highlightActiveLine() : []),
+    });
   }
 
   /** Zen mode: keep the cursor line vertically centered while editing. */

@@ -2,7 +2,7 @@
 //! GitHub Pages repo, one unguessable slug directory per share. Uses the
 //! system `git` and an authenticated `gh` CLI — no tokens stored here.
 
-use crate::export::{export_site, ExportStats};
+use crate::export::{export_site, CommentsCfg, ExportStats};
 use crate::themes::config_dir;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -25,6 +25,9 @@ pub struct ShareEntry {
     pub url: String,
     pub created: u64,            // unix seconds
     pub expires: Option<u64>,    // None = never
+    /// giscus wiring when reader comments are enabled for this share
+    #[serde(default)]
+    pub comments: Option<CommentsCfg>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -233,19 +236,64 @@ pub fn share_status(folder: String) -> Result<ShareStatus, String> {
     Ok(ShareStatus { entry, orphans })
 }
 
-fn export_into(folder: &Path, local: &Path, slug: &str) -> Result<ExportStats, String> {
+/// Wire up giscus comments for the shares repo: turn Discussions on and look
+/// up the ids giscus needs. The giscus GitHub App itself has to be installed
+/// once by the user (we can't do that via the API) — the dialog explains.
+fn setup_comments(full: &str) -> Result<CommentsCfg, String> {
+    run(
+        "gh",
+        &["api", "-X", "PATCH", &format!("repos/{full}"), "-F", "has_discussions=true"],
+        None,
+    )
+    .map_err(|e| format!("could not enable GitHub Discussions: {e}"))?;
+    let (owner, name) = full.split_once('/').ok_or("bad repo name")?;
+    let query = format!(
+        "query{{repository(owner:\"{owner}\",name:\"{name}\"){{id discussionCategories(first:25){{nodes{{id name}}}}}}}}"
+    );
+    let out = run("gh", &["api", "graphql", "-f", &format!("query={query}")], None)?;
+    let v: serde_json::Value = serde_json::from_str(&out).map_err(|e| e.to_string())?;
+    let repo = &v["data"]["repository"];
+    let repo_id = repo["id"].as_str().ok_or("no repository id from GitHub")?.to_string();
+    let nodes = repo["discussionCategories"]["nodes"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let cat = nodes
+        .iter()
+        .find(|n| n["name"] == "Announcements")
+        .or_else(|| nodes.iter().find(|n| n["name"] == "General"))
+        .or_else(|| nodes.first())
+        .ok_or("the shares repo has no discussion categories yet — open its Discussions tab once on GitHub")?;
+    Ok(CommentsCfg {
+        repo: full.to_string(),
+        repo_id,
+        category: cat["name"].as_str().unwrap_or("General").to_string(),
+        category_id: cat["id"].as_str().ok_or("no category id from GitHub")?.to_string(),
+    })
+}
+
+fn export_into(
+    folder: &Path,
+    local: &Path,
+    slug: &str,
+    comments: Option<&CommentsCfg>,
+) -> Result<ExportStats, String> {
     let dest = local.join(slug);
     if dest.exists() {
         fs::remove_dir_all(&dest).map_err(|e| e.to_string())?;
     }
-    let stats = export_site(folder, &dest);
+    let stats = export_site(folder, &dest, comments);
     if stats.is_err() {
         let _ = fs::remove_dir_all(&dest); // don't leave a half-written share
     }
     stats
 }
 
-fn create_share_impl(folder: String, expires_days: Option<u32>) -> Result<ShareResult, String> {
+fn create_share_impl(
+    folder: String,
+    expires_days: Option<u32>,
+    comments: bool,
+) -> Result<ShareResult, String> {
     let src = Path::new(&folder);
     if !src.is_dir() {
         return Err(format!("{folder} is not a folder"));
@@ -256,9 +304,14 @@ fn create_share_impl(folder: String, expires_days: Option<u32>) -> Result<ShareR
         return Err("this folder is already shared — use update instead".into());
     }
     let (local, owner) = ensure_repo()?;
+    let comments_cfg = if comments {
+        Some(setup_comments(&format!("{owner}/{REPO_NAME}"))?)
+    } else {
+        None
+    };
     sync_repo(&local)?;
     let slug = gen_slug();
-    let stats = export_into(src, &local, &slug)?;
+    let stats = export_into(src, &local, &slug, comments_cfg.as_ref())?;
     let pushed = publish(&local, &format!("share {slug}"))?;
     let entry = ShareEntry {
         folder: folder.clone(),
@@ -267,6 +320,7 @@ fn create_share_impl(folder: String, expires_days: Option<u32>) -> Result<ShareR
         url: format!("https://{owner}.github.io/{REPO_NAME}/{slug}/"),
         created: now(),
         expires: expires_days.map(|d| now() + u64::from(d) * 86_400),
+        comments: comments_cfg,
     };
     let mut reg = load_registry()?;
     reg.shares.push(entry.clone());
@@ -289,7 +343,7 @@ fn update_share_impl(folder: String) -> Result<ShareResult, String> {
         .ok_or("this folder is not shared")?;
     let (local, _) = ensure_repo()?;
     sync_repo(&local)?;
-    let stats = export_into(src, &local, &entry.slug)?;
+    let stats = export_into(src, &local, &entry.slug, entry.comments.as_ref())?;
     let pushed = publish(&local, &format!("update {}", entry.slug))?;
     Ok(ShareResult { share: entry, pushed, pages: stats.pages, skipped: stats.skipped })
 }
@@ -361,7 +415,7 @@ mod tests {
         // tolerate a leftover entry from an earlier aborted run
         let _ = destroy_share_impl(folder.clone());
 
-        let created = create_share_impl(folder.clone(), Some(1)).expect("create");
+        let created = create_share_impl(folder.clone(), Some(1), false).expect("create");
         println!("created: {}", created.share.url);
         assert!(created.pushed);
         assert!(created.pages >= 1);
@@ -382,8 +436,12 @@ mod tests {
 }
 
 #[tauri::command]
-pub async fn create_share(folder: String, expires_days: Option<u32>) -> Result<ShareResult, String> {
-    tauri::async_runtime::spawn_blocking(move || create_share_impl(folder, expires_days))
+pub async fn create_share(
+    folder: String,
+    expires_days: Option<u32>,
+    comments: bool,
+) -> Result<ShareResult, String> {
+    tauri::async_runtime::spawn_blocking(move || create_share_impl(folder, expires_days, comments))
         .await
         .map_err(|e| e.to_string())?
 }

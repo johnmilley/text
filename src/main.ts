@@ -11,14 +11,20 @@ import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setUiFontSize 
 import { closeModal, confirmBox, infoBox, pick, promptText } from "./modal";
 import { openSettings } from "./settings";
 import { openShareDialog } from "./share";
-import { closePdfDoc, initPdfView, isPdfFile, openPdfDoc } from "./pdf";
+import { bumpPdfZoom, closePdfDoc, initPdfView, isPdfFile, openPdfDoc, resetPdfZoom } from "./pdf";
 import {
   invalidateImage,
   isAudioFile,
+  isVideoFile,
   isViewableImage,
   loadAudio,
   loadImage,
 } from "./images";
+import { comboCandidates } from "./keys";
+import { openCalendar } from "./calendar";
+import { initPreview, previewOn, refreshPreview, schedulePreview, setPreview } from "./preview";
+import { DEMO_FILE, DEMO_NOTE } from "./demo";
+import type { NoteMeta } from "./api";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
   document.querySelector(sel) as T;
@@ -257,6 +263,98 @@ treeEl.addEventListener("contextmenu", (e) => {
   showContextMenu(e, entryAt(e));
 });
 
+// ------------------------------------------------------ tree keyboard nav
+// Ctrl+E focuses the tree; arrows walk the visible rows, Enter opens (and
+// returns focus to the editor), Escape bails out. No mouse required.
+
+const persistExpanded = () =>
+  localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
+
+/** Row paths in display order (rowByPath fills in render order). */
+const visibleTreePaths = () => [...rowByPath.keys()];
+
+let treeSel: string | null = null;
+
+function markTreeSel(path: string | null) {
+  treeSel = path;
+  for (const [p, row] of rowByPath) row.classList.toggle("kbd-sel", p === path);
+  if (path) rowByPath.get(path)?.scrollIntoView({ block: "nearest" });
+}
+
+function focusTree() {
+  showPane("files");
+  const paths = visibleTreePaths();
+  if (!paths.length) return;
+  markTreeSel(
+    treeSel && rowByPath.has(treeSel)
+      ? treeSel
+      : currentPath && rowByPath.has(currentPath)
+        ? currentPath
+        : paths[0],
+  );
+  treeEl.focus();
+}
+
+treeEl.addEventListener("keydown", (e) => {
+  const paths = visibleTreePaths();
+  if (!paths.length) return;
+  const i = treeSel ? paths.indexOf(treeSel) : -1;
+  const entry = treeSel ? entryByPath.get(treeSel) : undefined;
+  const move = (to: number) =>
+    markTreeSel(paths[Math.min(Math.max(to, 0), paths.length - 1)]);
+  const setExpanded = (path: string, open: boolean) => {
+    open ? expanded.add(path) : expanded.delete(path);
+    persistExpanded();
+    renderTree();
+    markTreeSel(treeSel);
+  };
+  switch (e.key) {
+    case "ArrowDown":
+      e.preventDefault();
+      move(i + 1);
+      break;
+    case "ArrowUp":
+      e.preventDefault();
+      move(i - 1);
+      break;
+    case "Home":
+      e.preventDefault();
+      move(0);
+      break;
+    case "End":
+      e.preventDefault();
+      move(paths.length - 1);
+      break;
+    case "ArrowRight":
+      e.preventDefault();
+      if (!entry) break;
+      if (entry.is_dir && !expanded.has(entry.path)) setExpanded(entry.path, true);
+      else if (entry.is_dir) move(i + 1); // already open — step inside
+      break;
+    case "ArrowLeft":
+      e.preventDefault();
+      if (entry?.is_dir && expanded.has(entry.path)) setExpanded(entry.path, false);
+      else if (treeSel) {
+        const parent = parentOf(treeSel);
+        if (rowByPath.has(parent)) markTreeSel(parent);
+      }
+      break;
+    case "Enter":
+    case " ":
+      e.preventDefault();
+      if (!entry) break;
+      if (entry.is_dir) setExpanded(entry.path, !expanded.has(entry.path));
+      else void openFile(entry.path); // openFile hands focus to the editor
+      break;
+    case "Escape":
+      e.preventDefault();
+      markTreeSel(null);
+      editor.focus();
+      break;
+  }
+});
+treeEl.addEventListener("blur", () => markTreeSel(null));
+
 // Pointer-based drag to move tree entries between folders (HTML5 drag-and-drop
 // is unreliable inside Tauri webviews when native file drop is enabled).
 // Armed on every row mousedown; becomes a drag once the pointer travels a bit.
@@ -402,6 +500,7 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
     if (entry.is_dir) {
       add("new note inside", () => void newNote(entry.path));
       add("new folder inside", () => void newFolder(entry.path));
+      add("generate table of contents", () => void generateToc(entry.path));
       add("share…", () => openShareDialog(entry.path));
     } else {
       add("open in new tab", () => void newTab(entry.path));
@@ -421,50 +520,63 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
   } else if (root) {
     add("new note", () => void newNote());
     add("new folder", () => void newFolder());
+    add("generate table of contents", () => void generateToc(root!));
     add("share this folder…", shareRoot);
     if (copiedEntry) add(`paste "${copiedEntry.name}"`, () => void pasteInto(root!));
   }
   openCtxMenu(e, items);
 }
 
+/** Write "TOC.md" into `dir`, a nested list of wikilinks to everything
+ * inside, and open it. Re-running refreshes the listing. */
+async function generateToc(dir: string) {
+  if (!root) return;
+  const entries = dir === root ? tree : (entryByPath.get(dir)?.children ?? []);
+  const title = dir.split("/").pop() ?? "notes";
+  const lines: string[] = [`# ${title} — contents`, ""];
+  const walk = (items: api.Entry[], depth: number) => {
+    for (const item of items) {
+      const indent = "  ".repeat(depth);
+      if (item.is_dir) {
+        lines.push(`${indent}- **${item.name}**`);
+        if (item.children) walk(item.children, depth + 1);
+      } else if (depth > 0 || item.name !== "TOC.md") {
+        lines.push(`${indent}- [[${isNote(item.name) ? stem(item.name) : item.name}]]`);
+      }
+    }
+  };
+  walk(entries, 0);
+  const path = `${dir}/TOC.md`;
+  try {
+    await api.createFile(path).catch(() => {}); // may already exist
+    await api.writeFile(path, lines.join("\n") + "\n", null);
+    await refreshTree();
+    await openFile(path);
+  } catch (err) {
+    showIssue(`TOC failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  }
+}
+
 // ------------------------------------------------------------- tree sorting
 
-type SortMode = "default" | "za" | "newest";
-const SORT_LABEL: Record<SortMode, string> = {
-  default: "Sort: a–z (default)",
-  za: "Sort: z–a",
-  newest: "Sort: newest first",
-};
-let sortMode = (localStorage.getItem("text.sort") as SortMode) || "default";
-if (!(sortMode in SORT_LABEL)) sortMode = "default";
-
 /** Re-order the fetched tree in place. The backend hands us dirs-first,
- * name-ascending; "default" keeps that, except inside the daily-notes folder
+ * name-ascending; that order stands, except inside the daily-notes folder
  * where date-shaped names (YYYY / MM / YYYY-MM-DD) show latest first. */
 function sortTree(entries: api.Entry[], inDaily: boolean) {
   const dailyPath = `${root}/${config.daily_dir}`;
   const dirs = entries.filter((e) => e.is_dir);
   const files = entries.filter((e) => !e.is_dir);
   const datish = (e: api.Entry) => /^\d[\d-]*$/.test(stem(e.name));
-  for (const group of [dirs, files]) {
-    if (sortMode === "za") group.reverse();
-    else if (sortMode === "newest") group.sort((a, b) => b.mtime - a.mtime);
-    else if (inDaily) group.sort((a, b) => (datish(a) && datish(b) ? b.name.localeCompare(a.name) : 0));
+  if (inDaily) {
+    for (const group of [dirs, files]) {
+      group.sort((a, b) => (datish(a) && datish(b) ? b.name.localeCompare(a.name) : 0));
+    }
   }
   entries.length = 0;
   entries.push(...dirs, ...files);
   for (const dir of dirs) {
     if (dir.children) sortTree(dir.children, inDaily || dir.path === dailyPath);
   }
-}
-
-function cycleSort() {
-  const order: SortMode[] = ["default", "za", "newest"];
-  sortMode = order[(order.indexOf(sortMode) + 1) % order.length];
-  localStorage.setItem("text.sort", sortMode);
-  $("#btn-sort").title = SORT_LABEL[sortMode];
-  $("#btn-sort").classList.toggle("active-sort", sortMode !== "default");
-  void refreshTree();
 }
 
 let treeFingerprint = "";
@@ -619,6 +731,7 @@ async function tryRestoreSnap(t: Tab): Promise<boolean> {
   setCurrentRow(t.path);
   updateStatus();
   void refreshBacklinks();
+  refreshPreview();
   editor.focus();
   return true;
 }
@@ -847,8 +960,11 @@ function ensureEditor2(): Editor {
     importImageBlob,
     onNavBack: () => {},
     onNavForward: () => {},
+    dataview: dataviewHost,
   });
   editor2.setVim(config.vim_mode);
+  editor2.setLineNumbers(config.line_numbers);
+  editor2.setHighlightLine(config.highlight_line);
   return editor2;
 }
 
@@ -991,6 +1107,9 @@ function rememberFile(path: string) {
 }
 
 async function openFile(path: string) {
+  // video never opens in-app — straight handoff to the system player (no
+  // tab, no pane focus change, nothing in the editor moves)
+  if (isVideoFile(path)) return openVideo(path);
   if (split !== "off") {
     // a file already showing in the split pane: focus it instead of opening
     // the same document in two editors
@@ -1033,6 +1152,7 @@ async function openFile(path: string) {
     syncTab();
     updateStatus();
     void refreshBacklinks();
+    refreshPreview();
     editor.focus();
   } catch (err) {
     showIssue(String(err), [{ label: "ok", run: hideIssue }]);
@@ -1040,7 +1160,8 @@ async function openFile(path: string) {
 }
 
 async function openImage(path: string) {
-  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf) await save();
+  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf)
+    await save();
   hideIssue();
   try {
     const src = await loadImage(path);
@@ -1063,6 +1184,7 @@ async function openImage(path: string) {
     syncTab();
     updateStatus();
     void refreshBacklinks();
+    refreshPreview();
   } catch (err) {
     showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
@@ -1074,7 +1196,8 @@ function hideImageView() {
 }
 
 async function openAudio(path: string) {
-  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf) await save();
+  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf)
+    await save();
   hideIssue();
   try {
     const mtime = await api.statMtime(path); // also confirms the file exists
@@ -1103,6 +1226,7 @@ async function openAudio(path: string) {
     syncTab();
     updateStatus();
     void refreshBacklinks();
+    refreshPreview();
   } catch (err) {
     showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
@@ -1115,8 +1239,21 @@ function hideAudioView() {
   $("#audio-view").hidden = true;
 }
 
+/** Video goes straight to the system player. In-app playback on Linux is
+ * software-decoded (WebKitGTK has no hardware path on this stack) and
+ * GStreamer demuxer bugs can abort the whole web process, window and all. */
+async function openVideo(path: string) {
+  try {
+    await api.statMtime(path); // confirms the file exists
+    await openPath(path);
+  } catch (err) {
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
+  }
+}
+
 async function openPdf(path: string) {
-  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf) await save();
+  if (currentPath && dirty && !viewingImage && !viewingAudio && !viewingPdf)
+    await save();
   hideIssue();
   try {
     const mtime = await api.statMtime(path); // also confirms the file exists
@@ -1135,6 +1272,7 @@ async function openPdf(path: string) {
     syncTab();
     updateStatus();
     void refreshBacklinks();
+    refreshPreview();
   } catch (err) {
     showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
@@ -1298,7 +1436,8 @@ function hideTableView() {
 }
 
 async function save(): Promise<boolean> {
-  if (!currentPath || saving || viewingImage || viewingAudio || viewingPdf) return true;
+  if (!currentPath || saving || viewingImage || viewingAudio || viewingPdf)
+    return true;
   saving = true;
   try {
     const result = await api.writeFile(currentPath, editor.text, currentMtime);
@@ -1344,6 +1483,7 @@ function scheduleAutosave() {
 
 async function onFsChanged(paths: string[]) {
   await refreshTree();
+  invalidateNotesMeta();
   for (const p of paths) invalidateImage(p);
   if (pane2Path && paths.includes(pane2Path)) await pane2FsChanged();
   if (!currentPath || !paths.includes(currentPath)) return;
@@ -1413,6 +1553,7 @@ function showEmptyTab() {
   $("#welcome").style.display = "";
   setCurrentRow(null);
   updateStatus();
+  refreshPreview();
 }
 
 /** Close the open file: the active tab becomes an empty tab. */
@@ -1697,10 +1838,10 @@ async function refreshBacklinks() {
 
 // ---------------------------------------------------------------- daily / theme / config
 
-async function openDaily() {
+/** Open (creating if needed) the daily note for a YYYY-MM-DD date. */
+async function openDailyFor(date: string) {
   if (!root) return;
   // daily/YYYY/MM/YYYY-MM-DD.md (the tree shows latest year/month first)
-  const date = today();
   const dir = `${root}/${config.daily_dir}/${date.slice(0, 4)}/${date.slice(5, 7)}`;
   const path = `${dir}/${date}.md`;
   try {
@@ -1712,18 +1853,44 @@ async function openDaily() {
   await refreshTree();
   await openFile(path);
   if (!editor.text) {
-    editor.replaceContent(`# ${today()}\n\n`);
+    editor.replaceContent(`# ${date}\n\n`);
     editor.jumpToLine(3);
   }
+}
+
+const openDaily = () => openDailyFor(today());
+
+/** Month-grid calendar over the daily notes (Ctrl+Shift+C / the sidebar). */
+function openDailyCalendar() {
+  if (!root) return;
+  const dailyRel = config.daily_dir.replace(/^\/+|\/+$/g, "");
+  openCalendar({
+    hasNote: (date) =>
+      allFiles.some(
+        (f) => f.rel === `${dailyRel}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`,
+      ),
+    open: (date) => {
+      closeModal();
+      void openDailyFor(date);
+    },
+  });
 }
 
 async function pickTheme() {
   themes = await api.listThemes();
   const current = themes.find((t) => t.id === config.theme);
+  // light themes first, then dark — so the two groups read separately
+  const grouped = [...themes].sort(
+    (a, b) => Number(a.dark) - Number(b.dark) || a.name.localeCompare(b.name),
+  );
   const chosen = await pick(
-    themes.map((t) => ({ label: t.name, detail: t.id, value: t.id })),
+    grouped.map((t) => ({
+      label: t.name,
+      detail: `${t.dark ? "dark" : "light"} · ${t.id}`,
+      value: t.id,
+    })),
     {
-      placeholder: "theme…",
+      placeholder: "theme… (type light / dark to filter)",
       // live preview while arrowing / hovering (never on open)
       onHighlight: (item) => {
         const theme = themes.find((t) => t.id === item?.value);
@@ -1840,6 +2007,86 @@ function shareRoot() {
   if (root) openShareDialog(root);
 }
 
+// ---------------------------------------------------------------- dataview
+
+/** Cached note metadata for dataview blocks; refetched after fs changes. */
+let notesMeta: Promise<NoteMeta[]> | null = null;
+const dataviewSubs = new Set<() => void>();
+let dataviewTimer: number | undefined;
+
+function invalidateNotesMeta() {
+  notesMeta = null;
+  // fs events arrive in bursts (autosave) — tell the widgets once it settles
+  window.clearTimeout(dataviewTimer);
+  dataviewTimer = window.setTimeout(() => {
+    for (const cb of dataviewSubs) cb();
+  }, 500);
+}
+
+const dataviewHost = {
+  data: () => {
+    if (!root) return Promise.resolve([]);
+    if (!notesMeta) notesMeta = api.collectNotes(root).catch(() => []);
+    return notesMeta;
+  },
+  onInvalidate: (cb: () => void) => {
+    dataviewSubs.add(cb);
+    return () => void dataviewSubs.delete(cb);
+  },
+  openNote: (path: string, line?: number) => {
+    void openFile(path).then(() => {
+      if (line && currentPath === path) editor.jumpToLine(line);
+    });
+  },
+};
+
+// ---------------------------------------------------------------- preview
+
+/** Open a relative link target ("dir/note.md") clicked in the preview. */
+function openRelTarget(target: string) {
+  if (!root) return;
+  let t = target;
+  try {
+    t = decodeURIComponent(target);
+  } catch {
+    // not URI-encoded — use as-is
+  }
+  const dir = currentPath ? parentOf(currentPath) : root;
+  const candidates = t.startsWith("/") ? [t] : [`${dir}/${t}`, `${root}/${t}`];
+  for (const c of candidates) {
+    const p = normalizePath(c);
+    if (allFiles.some((f) => f.path === p)) return void openFile(p);
+  }
+  const base = t.split("/").pop()!.toLowerCase();
+  const hit = allFiles.find((f) => f.path.split("/").pop()!.toLowerCase() === base);
+  if (hit) void openFile(hit.path);
+}
+
+const togglePreview = () => setPreview(!previewOn());
+
+// ---------------------------------------------------------------- demo note
+
+/** Write the bundled markdown reference into the folder (once) and open it
+ * with the preview beside it — a live side-by-side comparison. */
+async function openDemoNote() {
+  if (!root) return;
+  closeModal(); // settings panel stays open otherwise
+  const path = `${root}/${DEMO_FILE}`;
+  if (!allFiles.some((f) => f.path === path)) {
+    try {
+      await api.createFile(path).catch(() => {});
+      await api.writeFile(path, DEMO_NOTE, null);
+      await refreshTree();
+    } catch (err) {
+      return showIssue(`could not create the reference note: ${err}`, [
+        { label: "ok", run: hideIssue },
+      ]);
+    }
+  }
+  await openFile(path);
+  setPreview(true);
+}
+
 let configFilePath = "";
 let configSaveTimer: number | undefined;
 
@@ -1871,6 +2118,7 @@ async function applyConfigFromDisk() {
   setEditorMargin(config.editor_margin);
   editor.setVim(config.vim_mode);
   editor2?.setVim(config.vim_mode);
+  applyEditorView();
   $("#sidebar").style.width = `${config.sidebar_width}px`;
   themes = await api.listThemes();
   const theme = themes.find((t) => t.id === config.theme) ?? themes[0];
@@ -1881,6 +2129,14 @@ async function openConfig() {
   closeModal(); // settings panel stays open otherwise, hiding the editor
   await api.saveConfig(config); // make sure the file exists with current values
   await openFile(configFilePath);
+}
+
+/** Line numbers + current-line highlight, applied to both editors. */
+function applyEditorView() {
+  editor.setLineNumbers(config.line_numbers);
+  editor.setHighlightLine(config.highlight_line);
+  editor2?.setLineNumbers(config.line_numbers);
+  editor2?.setHighlightLine(config.highlight_line);
 }
 
 /** The settings panel (Ctrl+,) — a friendly face over config.toml. */
@@ -1897,6 +2153,8 @@ function openSettingsPanel() {
       editor.setVim(config.vim_mode);
       editor2?.setVim(config.vim_mode);
     },
+    applyEditorView,
+    openDemo: () => void openDemoNote(),
     pickTheme: () => void pickTheme(),
     pickFont: () => void pickEditorFont(),
     openConfigFile: () => void openConfig(),
@@ -1933,6 +2191,7 @@ async function openRoot(path: string) {
     closeCurrent();
   }
   await refreshTree();
+  invalidateNotesMeta();
   await api.watchRoot(path);
   const recents = [path, ...config.recent_roots.filter((r) => r !== path)].slice(0, 10);
   if (config.root !== path || recents.join("\n") !== config.recent_roots.join("\n")) {
@@ -1956,7 +2215,9 @@ async function restoreSession() {
     // unreadable — start fresh
   }
   const exists = (p: string) => allFiles.some((f) => f.path === p);
-  let paths = saved.filter((p): p is string => !!p && exists(p));
+  // drop video tabs from older sessions — restoring one would launch the
+  // system player at startup (videos no longer open in-app)
+  let paths = saved.filter((p): p is string => !!p && exists(p) && !isVideoFile(p));
   if (!paths.length) {
     const last = localStorage.getItem("text.lastFile");
     paths = last && exists(last) ? [last] : [];
@@ -2018,6 +2279,9 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "prev_tab", combo: "ctrl+shift+tab", what: "previous tab", run: () => void switchTab((active + tabs.length - 1) % tabs.length) },
   { id: "new_window", combo: "ctrl+shift+n", what: "new window", run: newWindow },
   { id: "split", combo: "ctrl+shift+\\", what: "split editor (vertical → horizontal → off)", run: () => void cycleSplit() },
+  { id: "preview", combo: "ctrl+shift+m", what: "markdown preview (rendered, beside the editor)", run: togglePreview },
+  { id: "focus_tree", combo: "ctrl+e", what: "focus file tree (arrows move, enter opens, esc returns)", run: focusTree },
+  { id: "calendar", combo: "ctrl+shift+c", what: "daily-note calendar", run: openDailyCalendar },
   { id: "zen", combo: "alt+z", what: "zen mode (fullscreen, typewriter) — also F11", run: () => void toggleZen() },
 ];
 
@@ -2069,6 +2333,7 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ["Ctrl+I", "italic"],
       ["Ctrl+Shift+X", "strikethrough"],
       ["Ctrl+K", "insert markdown link"],
+      ["` with text selected", "wrap as inline code"],
       ["Ctrl+1 … Ctrl+6", "heading level 1–6 (repeat to clear)"],
       ["Ctrl+F", "find in note"],
       ["click a [ ]", "toggle checkbox"],
@@ -2089,9 +2354,9 @@ const SHORTCUTS: [string, [string, string][]][] = [
   [
     "view",
     [
-      ["Ctrl+= / Ctrl+-", "editor font size"],
+      ["Ctrl+= / Ctrl+-", "editor font size — zooms instead while viewing an image or PDF"],
       ["Ctrl+Shift+= / Ctrl+Shift+-", "UI font size"],
-      ["Ctrl+0", "reset font sizes"],
+      ["Ctrl+0", "reset font sizes (or image/PDF zoom)"],
     ],
   ],
 ];
@@ -2149,26 +2414,46 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault();
     fn();
   };
-  // font size (fixed): Ctrl+= / Ctrl+- for the editor, Ctrl+Shift+= /
-  // Ctrl+Shift+- for the UI (sidebar, dialogs); Ctrl+0 resets both.
-  // Matched on e.code so they work regardless of layout and shift state.
+  // Ctrl+= / Ctrl+- (fixed): zoom the image or PDF when one is open,
+  // otherwise the editor font; Ctrl+Shift+= / Ctrl+Shift+- the UI font.
+  // Ctrl+0 resets whichever applies. Matched on e.code so they work
+  // regardless of layout and shift state.
   if (mod && (e.code === "Equal" || e.code === "Minus" || e.code === "NumpadAdd" || e.code === "NumpadSubtract")) {
     const delta = e.code === "Equal" || e.code === "NumpadAdd" ? 1 : -1;
-    return run(() => (e.shiftKey ? bumpUiFont(delta) : bumpEditorFont(delta)));
+    return run(() => {
+      if (!e.shiftKey && viewingImage) {
+        imgScale = Math.min(4, Math.max(0.1, Math.round((imgScale + delta * 0.1) * 10) / 10));
+        applyImageTools();
+      } else if (!e.shiftKey && viewingPdf) {
+        bumpPdfZoom(delta * 0.1);
+      } else if (e.shiftKey) {
+        bumpUiFont(delta);
+      } else {
+        bumpEditorFont(delta);
+      }
+    });
   }
   if (mod && e.code === "Digit0" && !e.shiftKey) {
     return run(() => {
-      bumpEditorFont(15 - config.font_size);
-      bumpUiFont(13 - config.ui_font_size);
+      if (viewingImage) {
+        imgScale = 1;
+        applyImageTools();
+      } else if (viewingPdf) {
+        resetPdfZoom();
+      } else {
+        bumpEditorFont(15 - config.font_size);
+        bumpUiFont(13 - config.ui_font_size);
+      }
     });
   }
-  // configurable app shortcuts — the editor keeps anything it already handled
+  // configurable app shortcuts — the editor keeps anything it already
+  // handled. Both the typed key and the physical (unshifted) key are tried,
+  // so e.g. ctrl+shift+\ matches even where Shift+\ types "|".
   if (e.defaultPrevented) return;
-  const combo =
-    `${mod ? "ctrl+" : ""}${e.shiftKey ? "shift+" : ""}${e.altKey ? "alt+" : ""}` +
-    e.key.toLowerCase();
-  const action = boundKeys.get(combo);
-  if (action) run(action);
+  for (const combo of comboCandidates(e)) {
+    const action = boundKeys.get(combo);
+    if (action) return run(action);
+  }
 }
 
 function toggleSidebar() {
@@ -2212,6 +2497,7 @@ async function init() {
       dirty = true;
       updateStatus();
       scheduleAutosave();
+      schedulePreview();
       if (tableShown()) renderTableView(); // external reload while in table view
     },
     onStatus: updateStatus,
@@ -2223,7 +2509,24 @@ async function init() {
     importImageBlob,
     onNavBack: goBack,
     onNavForward: goForward,
+    dataview: dataviewHost,
   });
+
+  initPreview(
+    {
+      getText: () => editor.text,
+      getPath: () => currentPath,
+      isMarkdownish: (p) => {
+        const name = p.split("/").pop()!;
+        return isNote(name) || /\.(txt|text)$/i.test(name) || !name.includes(".");
+      },
+      resolveImage: imageResolver(() => currentPath),
+      openWikilink,
+      openRelPath: openRelTarget,
+      openExternal: (url) => void openUrl(url),
+    },
+    () => setPreview(false),
+  );
 
   await applyConfigFromDisk();
 
@@ -2268,9 +2571,6 @@ async function init() {
   $("#folder-name").addEventListener("click", () => void switchFolder());
   $("#btn-new-note").addEventListener("click", () => void newNote());
   $("#btn-new-folder").addEventListener("click", () => void newFolder());
-  $("#btn-sort").title = SORT_LABEL[sortMode];
-  $("#btn-sort").classList.toggle("active-sort", sortMode !== "default");
-  $("#btn-sort").addEventListener("click", cycleSort);
 
   $("#img-rot-l").addEventListener("click", () => {
     imgRotation = (imgRotation + 270) % 360;
@@ -2311,6 +2611,7 @@ async function init() {
   $("#pane1").addEventListener("focusin", () => setFocusedPane(1));
   $("#pane2").addEventListener("focusin", () => setFocusedPane(2));
   $("#btn-daily").addEventListener("click", () => void openDaily());
+  $("#btn-calendar").addEventListener("click", openDailyCalendar);
   $("#btn-share").addEventListener("click", shareRoot);
   $("#btn-config").addEventListener("click", () => openSettingsPanel());
   $("#btn-config").addEventListener("contextmenu", (e) => {

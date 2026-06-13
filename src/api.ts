@@ -41,6 +41,8 @@ export interface Config {
   ui_font_size: number;
   editor_font: string;
   editor_margin: number;
+  line_numbers: boolean;
+  highlight_line: boolean;
   vim_mode: boolean;
   root: string | null;
   recent_roots: string[];
@@ -77,6 +79,13 @@ export const searchText = (root: string, query: string) =>
   invoke<Hit[]>("search_text", { root, query });
 export const findBacklinks = (root: string, target: string) =>
   invoke<Hit[]>("find_backlinks", { root, target });
+export interface CommentsCfg {
+  repo: string;
+  repo_id: string;
+  category: string;
+  category_id: string;
+}
+
 export interface ShareEntry {
   folder: string;
   slug: string;
@@ -84,6 +93,7 @@ export interface ShareEntry {
   url: string;
   created: number; // unix seconds
   expires: number | null;
+  comments: CommentsCfg | null;
 }
 
 export interface ShareStatus {
@@ -99,8 +109,8 @@ export interface ShareResult {
 }
 
 export const shareStatus = (folder: string) => invoke<ShareStatus>("share_status", { folder });
-export const createShare = (folder: string, expiresDays: number | null) =>
-  invoke<ShareResult>("create_share", { folder, expiresDays });
+export const createShare = (folder: string, expiresDays: number | null, comments: boolean) =>
+  invoke<ShareResult>("create_share", { folder, expiresDays, comments });
 export const updateShare = (folder: string) => invoke<ShareResult>("update_share", { folder });
 export const destroyShare = (folder: string) => invoke<void>("destroy_share", { folder });
 export const cleanupShares = () => invoke<string[]>("cleanup_expired_shares");
@@ -113,6 +123,28 @@ export interface WindowInit {
 export const openWindow = (root: string | null, file: string | null) =>
   invoke<void>("open_window", { root, file });
 export const windowInitParams = () => invoke<WindowInit | null>("window_init_params");
+
+export interface TaskItem {
+  text: string;
+  done: boolean;
+  line: number;
+}
+
+export interface NoteMeta {
+  path: string;
+  rel: string;
+  name: string;
+  mtime: number;
+  tags: string[];
+  fields: Record<string, string>;
+  tasks: TaskItem[];
+}
+
+/** Note metadata (frontmatter, tags, tasks) for dataview query blocks. */
+export const collectNotes = (root: string) => invoke<NoteMeta[]>("collect_notes", { root });
+
+/** Markdown → preview HTML (wikilinks/embeds left for the app to resolve). */
+export const renderPreview = (text: string) => invoke<string>("render_preview", { text });
 
 export const listThemes = () => invoke<Theme[]>("list_themes");
 export const themesDirPath = () => invoke<string>("themes_dir_path");

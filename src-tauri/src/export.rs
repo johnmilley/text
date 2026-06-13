@@ -11,9 +11,20 @@ use std::fs;
 use std::path::Path;
 
 const PAGE_TEMPLATE: &str = include_str!("../templates/share/page.html");
+const SLIDES_TEMPLATE: &str = include_str!("../templates/share/slides.html");
 const SITE_CSS: &str = include_str!("../templates/share/style.css");
 const HLJS_JS: &str = include_str!("../templates/share/highlight.min.js");
 const HLJS_CSS: &str = include_str!("../templates/share/highlight.css");
+
+/// giscus (GitHub Discussions) wiring for shared pages; stored on the share
+/// registry entry so updates keep commenting enabled.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct CommentsCfg {
+    pub repo: String, // "owner/text-shares"
+    pub repo_id: String,
+    pub category: String,
+    pub category_id: String,
+}
 
 /// GitHub rejects blobs over 100 MB; stay under with margin.
 const MAX_FILE_BYTES: u64 = 95 * 1024 * 1024;
@@ -328,11 +339,8 @@ fn plain_text(events: &[Event]) -> String {
     s
 }
 
-/// Render one note to body HTML, resolving wikilinks/embeds against the site.
-fn render_markdown(text: &str, page_out: &str, src_dir: &str, site: &Site) -> String {
-    let mut events: Vec<Event> = Parser::new_ext(text, MD_OPTIONS).collect();
-
-    // heading ids, so [[note#section]] anchors land
+/// Give headings derived ids, so [[note#section]] anchors land.
+fn add_heading_ids(events: &mut [Event]) {
     let mut i = 0;
     while i < events.len() {
         if let Event::Start(Tag::Heading { id, .. }) = &events[i] {
@@ -350,6 +358,12 @@ fn render_markdown(text: &str, page_out: &str, src_dir: &str, site: &Site) -> St
         }
         i += 1;
     }
+}
+
+/// Render one note to body HTML, resolving wikilinks/embeds against the site.
+fn render_markdown(text: &str, page_out: &str, src_dir: &str, site: &Site) -> String {
+    let mut events: Vec<Event> = Parser::new_ext(text, MD_OPTIONS).collect();
+    add_heading_ids(&mut events);
 
     let mut out: Vec<Event> = Vec::with_capacity(events.len());
     let mut broken_link = false;
@@ -552,10 +566,18 @@ fn ordered<'a, T>(items: impl Iterator<Item = (&'a String, T)>) -> Vec<(&'a Stri
     v
 }
 
+/// Whether this subtree holds the page being rendered (its folders stay open).
+fn holds_current(node: &NavDir, current: &str) -> bool {
+    node.files.iter().any(|(_, out)| out == current)
+        || node.dirs.values().any(|d| holds_current(d, current))
+}
+
 fn nav_html(node: &NavDir, current: &str, prefix: &str, out: &mut String) {
     out.push_str("<ul>");
     for (name, child) in ordered(node.dirs.iter()) {
-        out.push_str("<li><details open><summary>");
+        // folders start closed; only the path to the current page is open
+        let open = if holds_current(child, current) { " open" } else { "" };
+        out.push_str(&format!("<li><details{open}><summary>"));
         out.push_str(&html_escape(name));
         out.push_str("</summary>");
         nav_html(child, current, prefix, out);
@@ -615,15 +637,127 @@ fn listing_html(dir_out: &str, node: &NavDir, title: &str) -> String {
     body
 }
 
+// ---------------------------------------------------------------- frontmatter / slides
+
+/// Read a `key: true` flag from a YAML frontmatter block, if present.
+fn frontmatter_flag(text: &str, key: &str) -> bool {
+    let mut lines = text.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return false;
+    }
+    for line in lines.take(100) {
+        let t = line.trim();
+        if t == "---" || t == "..." {
+            return false;
+        }
+        if let Some(rest) = t.strip_prefix(key) {
+            if let Some(v) = rest.trim_start().strip_prefix(':') {
+                return v.trim() == "true";
+            }
+        }
+    }
+    false
+}
+
+/// Drop a leading YAML frontmatter block.
+fn strip_frontmatter(text: &str) -> &str {
+    let mut lines = text.split_inclusive('\n');
+    if lines.next().map(|l| l.trim()) != Some("---") {
+        return text;
+    }
+    let mut offset = text.find('\n').map(|i| i + 1).unwrap_or(text.len());
+    for line in lines {
+        offset += line.len();
+        let t = line.trim();
+        if t == "---" || t == "..." {
+            return &text[offset..];
+        }
+    }
+    text
+}
+
+/// Split note text into slides on `---` lines (outside code fences). The
+/// frontmatter must already be stripped.
+fn split_slides(text: &str) -> Vec<String> {
+    let mut slides: Vec<String> = vec![String::new()];
+    let mut fence: Option<&str> = None;
+    for line in text.lines() {
+        let t = line.trim_start();
+        if let Some(f) = fence {
+            if t.starts_with(f) {
+                fence = None;
+            }
+        } else if t.starts_with("```") {
+            fence = Some("```");
+        } else if t.starts_with("~~~") {
+            fence = Some("~~~");
+        } else if line.trim() == "---" {
+            slides.push(String::new());
+            continue;
+        }
+        let cur = slides.last_mut().unwrap();
+        cur.push_str(line);
+        cur.push('\n');
+    }
+    slides.retain(|s| !s.trim().is_empty());
+    if slides.is_empty() {
+        slides.push(String::new());
+    }
+    slides
+}
+
 // ---------------------------------------------------------------- assembly
 
-fn assemble(title: &str, share_title: &str, nav: &str, content: &str, page_out: &str) -> String {
+fn comments_html(comments: Option<&CommentsCfg>) -> String {
+    let Some(c) = comments else { return String::new() };
+    format!(
+        concat!(
+            "<section id=\"comments\"><script src=\"https://giscus.app/client.js\"\n",
+            "  data-repo=\"{}\" data-repo-id=\"{}\"\n",
+            "  data-category=\"{}\" data-category-id=\"{}\"\n",
+            "  data-mapping=\"pathname\" data-strict=\"0\" data-reactions-enabled=\"1\"\n",
+            "  data-emit-metadata=\"0\" data-input-position=\"bottom\"\n",
+            "  data-theme=\"preferred_color_scheme\" data-lang=\"en\"\n",
+            "  crossorigin=\"anonymous\" async></script></section>"
+        ),
+        html_escape(&c.repo),
+        html_escape(&c.repo_id),
+        html_escape(&c.category),
+        html_escape(&c.category_id),
+    )
+}
+
+fn assemble(
+    title: &str,
+    share_title: &str,
+    nav: &str,
+    content: &str,
+    page_out: &str,
+    comments: Option<&CommentsCfg>,
+) -> String {
     PAGE_TEMPLATE
         .replace("{{root}}", &root_prefix(page_out))
         .replace("{{title}}", &html_escape(title))
         .replace("{{share_title}}", &html_escape(share_title))
         .replace("{{nav}}", nav)
+        .replace("{{comments}}", &comments_html(comments))
         .replace("{{content}}", content) // last: user text may contain tokens
+}
+
+/// A note flagged `slides: true` becomes a slide deck: one section per
+/// `---`-separated chunk, with the keyboard/click navigation baked into the
+/// slides template.
+fn assemble_slides(title: &str, text: &str, page_out: &str, src_dir: &str, site: &Site) -> String {
+    let mut sections = String::new();
+    for chunk in split_slides(strip_frontmatter(text)) {
+        sections.push_str("<section class=\"slide\">");
+        sections.push_str(&render_markdown(&chunk, page_out, src_dir, site));
+        sections.push_str("</section>\n");
+    }
+    SLIDES_TEMPLATE
+        .replace("{{root}}", &root_prefix(page_out))
+        .replace("{{title}}", &html_escape(title))
+        .replace("{{slides}}", &sections) // last: user text may contain tokens
 }
 
 fn write_out(out_root: &Path, rel: &str, content: &str) -> Result<(), String> {
@@ -634,7 +768,11 @@ fn write_out(out_root: &Path, rel: &str, content: &str) -> Result<(), String> {
     fs::write(&path, content).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-pub fn export_site(folder: &Path, out_root: &Path) -> Result<ExportStats, String> {
+pub fn export_site(
+    folder: &Path,
+    out_root: &Path,
+    comments: Option<&CommentsCfg>,
+) -> Result<ExportStats, String> {
     let share_title = folder
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -671,13 +809,14 @@ pub fn export_site(folder: &Path, out_root: &Path) -> Result<ExportStats, String
             Kind::Note => {
                 let text = fs::read_to_string(&src_path)
                     .map_err(|e| format!("{}: {e}", src_path.display()))?;
-                let body = render_markdown(&text, &out_rel, &src_dir, &site);
                 let title = stem_of(base_of(&f.rel));
-                write_out(
-                    out_root,
-                    &out_rel,
-                    &assemble(title, &share_title, &nav_for(&out_rel), &body, &out_rel),
-                )?;
+                let page = if frontmatter_flag(&text, "slides") {
+                    assemble_slides(title, &text, &out_rel, &src_dir, &site)
+                } else {
+                    let body = render_markdown(&text, &out_rel, &src_dir, &site);
+                    assemble(title, &share_title, &nav_for(&out_rel), &body, &out_rel, comments)
+                };
+                write_out(out_root, &out_rel, &page)?;
                 pages += 1;
             }
             Kind::TextFile => {
@@ -702,7 +841,7 @@ pub fn export_site(folder: &Path, out_root: &Path) -> Result<ExportStats, String
                 write_out(
                     out_root,
                     &out_rel,
-                    &assemble(name, &share_title, &nav_for(&out_rel), &body, &out_rel),
+                    &assemble(name, &share_title, &nav_for(&out_rel), &body, &out_rel, None),
                 )?;
                 pages += 1;
             }
@@ -745,12 +884,132 @@ pub fn export_site(folder: &Path, out_root: &Path) -> Result<ExportStats, String
         write_out(
             out_root,
             &index_rel,
-            &assemble(&title, &share_title, &nav_for(&index_rel), &body, &index_rel),
+            &assemble(&title, &share_title, &nav_for(&index_rel), &body, &index_rel, None),
         )?;
         pages += 1;
     }
 
     Ok(ExportStats { pages, skipped })
+}
+
+// ---------------------------------------------------------------- in-app preview
+
+/// HTML for a preview embed: remote images pass through; local images become
+/// `<img data-embed>` for the frontend to resolve; anything else becomes an
+/// in-app link.
+fn preview_embed_html(dest: &str, alt: &str, wiki: bool) -> String {
+    // wikilink embeds carry a |modifier: a number is a width, otherwise alt
+    let (target, width) = if wiki {
+        let w = alt.trim();
+        let width = if !w.is_empty() && w.chars().all(|c| c.is_ascii_digit()) {
+            Some(w.to_string())
+        } else {
+            None
+        };
+        (dest.trim(), width)
+    } else {
+        (dest.trim(), None)
+    };
+    if target.starts_with("http:") || target.starts_with("https:") || target.starts_with("data:") {
+        return format!(
+            "<img src=\"{}\" alt=\"{}\" loading=\"lazy\">",
+            html_escape(target),
+            html_escape(alt)
+        );
+    }
+    let image =
+        is_image_file(Path::new(target)) || target.to_ascii_lowercase().ends_with(".svg");
+    if image {
+        let style = width
+            .map(|w| format!(" style=\"max-width:{w}px\""))
+            .unwrap_or_default();
+        return format!(
+            "<img data-embed=\"{}\" alt=\"{}\"{}>",
+            html_escape(target),
+            html_escape(alt),
+            style
+        );
+    }
+    let label = if alt.is_empty() || alt.chars().all(|c| c.is_ascii_digit()) {
+        target.rsplit('/').next().unwrap_or(target)
+    } else {
+        alt
+    };
+    format!(
+        "<a class=\"wikilink attachment\" href=\"#\" data-path=\"{}\">{}</a>",
+        html_escape(target),
+        html_escape(label)
+    )
+}
+
+/// Render markdown for the in-app preview pane. Wikilinks become
+/// `<a data-wikilink>` and local targets `data-path`/`data-embed`; the
+/// frontend resolves them against the open folder and wires the clicks.
+pub fn render_preview_html(text: &str) -> String {
+    let mut events: Vec<Event> = Parser::new_ext(text, MD_OPTIONS).collect();
+    add_heading_ids(&mut events);
+
+    let mut out: Vec<Event> = Vec::with_capacity(events.len());
+    let mut raw_link = false; // an open <a> we emitted as raw HTML
+    let mut iter = events.into_iter().peekable();
+    while let Some(ev) = iter.next() {
+        match ev {
+            Event::Start(Tag::Image { link_type, dest_url, .. }) => {
+                let mut inner: Vec<Event> = vec![];
+                for e in iter.by_ref() {
+                    if matches!(e, Event::End(TagEnd::Image)) {
+                        break;
+                    }
+                    inner.push(e);
+                }
+                let alt = plain_text(&inner);
+                let wiki = matches!(link_type, LinkType::WikiLink { .. });
+                out.push(Event::Html(preview_embed_html(&dest_url, &alt, wiki).into()));
+            }
+            Event::Start(Tag::Link { link_type: LinkType::WikiLink { .. }, dest_url, .. }) => {
+                let target = dest_url.split('#').next().unwrap_or(&dest_url).trim();
+                raw_link = true;
+                out.push(Event::Html(
+                    format!(
+                        "<a class=\"wikilink\" href=\"#\" data-wikilink=\"{}\">",
+                        html_escape(target)
+                    )
+                    .into(),
+                ));
+            }
+            Event::End(TagEnd::Link) if raw_link => {
+                raw_link = false;
+                out.push(Event::Html("</a>".into()));
+            }
+            Event::Start(Tag::Link { link_type, dest_url, title, id }) => {
+                let dest = dest_url.to_string();
+                let external =
+                    dest.starts_with('#') || dest.contains(':') || dest.starts_with("//");
+                if external {
+                    out.push(Event::Start(Tag::Link { link_type, dest_url, title, id }));
+                } else {
+                    raw_link = true;
+                    out.push(Event::Html(
+                        format!(
+                            "<a class=\"wikilink\" href=\"#\" data-path=\"{}\">",
+                            html_escape(&dest)
+                        )
+                        .into(),
+                    ));
+                }
+            }
+            other => out.push(other),
+        }
+    }
+
+    let mut body = String::new();
+    html::push_html(&mut body, out.into_iter());
+    body
+}
+
+#[tauri::command]
+pub fn render_preview(text: String) -> String {
+    render_preview_html(&text)
 }
 
 // ---------------------------------------------------------------- tests
@@ -829,7 +1088,7 @@ mod tests {
         fs::write(src.join("script.py"), "print('hello')\n").unwrap();
         fs::write(src.join("weird #name.md"), "odd\n").unwrap();
 
-        let stats = export_site(&src, &out).unwrap();
+        let stats = export_site(&src, &out, None).unwrap();
         assert!(stats.pages >= 4, "pages = {}", stats.pages);
         assert!(stats.skipped.is_empty());
         // README became the root index; assets and pages landed
@@ -851,6 +1110,51 @@ mod tests {
         for d in [&src, &out] {
             let _ = fs::remove_dir_all(d);
         }
+    }
+
+    #[test]
+    fn frontmatter_and_slides() {
+        let text = "---\ntitle: x\nslides: true\n---\n# One\n\n---\n\n# Two\n\n```\n---\n```\n";
+        assert!(frontmatter_flag(text, "slides"));
+        assert!(!frontmatter_flag("# no frontmatter\n", "slides"));
+        let body = strip_frontmatter(text);
+        assert!(body.starts_with("# One"));
+        let slides = split_slides(body);
+        assert_eq!(slides.len(), 2, "{slides:?}");
+        assert!(slides[1].contains("---"), "fenced --- must not split: {slides:?}");
+    }
+
+    #[test]
+    fn nav_folders_closed_unless_current() {
+        let site = site_with(&[("a.md", Kind::Note), ("sub/b.md", Kind::Note), ("other/c.md", Kind::Note)]);
+        let tree = nav_tree(&site);
+        let mut nav = String::new();
+        nav_html(&tree, "sub/b.html", "", &mut nav);
+        assert!(nav.contains("<details open><summary>sub</summary>"), "{nav}");
+        assert!(nav.contains("<details><summary>other</summary>"), "{nav}");
+    }
+
+    #[test]
+    fn preview_marks_local_targets() {
+        let html = render_preview_html("see [[note]] and [b](dir/b.md)\n\n![[pic.png|200]]\n\n![](https://x/y.png)");
+        assert!(html.contains("data-wikilink=\"note\""), "{html}");
+        assert!(html.contains("data-path=\"dir/b.md\""), "{html}");
+        assert!(html.contains("data-embed=\"pic.png\"") && html.contains("max-width:200px"), "{html}");
+        assert!(html.contains("src=\"https://x/y.png\""), "{html}");
+    }
+
+    #[test]
+    fn comments_block_lands_on_note_pages() {
+        let cfg = CommentsCfg {
+            repo: "me/text-shares".into(),
+            repo_id: "R_1".into(),
+            category: "Announcements".into(),
+            category_id: "DIC_1".into(),
+        };
+        let page = assemble("t", "s", "", "<p>x</p>", "a.html", Some(&cfg));
+        assert!(page.contains("giscus.app/client.js") && page.contains("data-repo=\"me/text-shares\""));
+        let plain = assemble("t", "s", "", "<p>x</p>", "a.html", None);
+        assert!(!plain.contains("giscus"));
     }
 
     #[test]

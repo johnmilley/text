@@ -1,6 +1,7 @@
 mod config;
 mod export;
 mod files;
+mod query;
 mod search;
 mod share;
 mod themes;
@@ -74,6 +75,8 @@ pub fn run() {
             files::stat_mtime,
             search::search_text,
             search::find_backlinks,
+            query::collect_notes,
+            export::render_preview,
             share::share_status,
             share::create_share,
             share::update_share,

@@ -32,8 +32,7 @@
             <span id="folder-name" title="Switch folder (Ctrl+Shift+O)">no folder</span>
             <span class="row-actions">
               <button id="btn-new-note" title="New note (Ctrl+N)">+</button>
-              <button id="btn-new-folder" title="New folder">⊞</button>
-              <button id="btn-sort" title="Sort: default">↕</button>
+              <button id="btn-new-folder" title="New folder"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3h4.2l1.6 2h7.2v8H1.5z"/><path d="M8 8.2v3.6M6.2 10h3.6" stroke-linecap="round"/></svg></button>
               <button id="btn-collapse" title="Collapse all folders">⊟</button>
             </span>
           </div>
@@ -52,6 +51,7 @@
 
         <footer id="sidebar-foot">
           <button id="btn-daily" title="Today's daily note (Ctrl+Shift+D)">today</button>
+          <button id="btn-calendar" title="Daily-note calendar (Ctrl+Shift+C)">calendar</button>
           <button id="btn-share" title="Share this folder as a website (Ctrl+Shift+S)">share</button>
           <button id="btn-config" title="Settings (Ctrl+,)">settings</button>
         </footer>
@@ -121,6 +121,14 @@
             <button id="pane2-close" title="Close split">×</button>
           </div>
           <div id="editor2-host"></div>
+        </div>
+        <!-- rendered markdown preview (Ctrl+Shift+M) -->
+        <div id="preview" hidden>
+          <div id="preview-bar">
+            <span>preview</span>
+            <button id="preview-close" title="Close preview (Ctrl+Shift+M)">×</button>
+          </div>
+          <div id="preview-body"></div>
         </div>
         </div>
         <!-- issue bar: hidden unless something needs attention -->

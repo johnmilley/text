@@ -179,8 +179,9 @@ button:hover {
 .row-actions button:hover {
   color: var(--fg);
 }
-.row-actions button.active-sort {
-  color: var(--accent);
+.row-actions button svg {
+  display: block;
+  margin: 2px 0;
 }
 
 #tree {
@@ -212,6 +213,11 @@ button:hover {
 .tree-row.conflicted .tree-label::after {
   content: " ⚠";
   color: var(--accent);
+}
+/* keyboard navigation (Ctrl+E): the row the arrows are on */
+.tree-row.kbd-sel {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 #pane-search input,
@@ -353,6 +359,116 @@ button:hover {
 }
 #editor2-host .cm-editor {
   height: 100%;
+}
+
+/* -------------------------------------------------------- preview pane */
+/* rendered markdown beside the editor (Ctrl+Shift+M) */
+
+#preview {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+#content.split-h #preview {
+  border-left: none;
+  border-top: 1px solid var(--border);
+}
+#preview[hidden] {
+  display: none;
+}
+#preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 2px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+#preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px 28px 50vh;
+  font-family: var(--font-editor);
+  font-size: var(--editor-font-size, 15px);
+  line-height: 1.65;
+}
+#preview-body h1, #preview-body h2, #preview-body h3 {
+  color: var(--heading);
+  line-height: 1.3;
+}
+#preview-body h2 {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2em;
+}
+#preview-body a {
+  color: var(--link);
+}
+#preview-body .wikilink {
+  text-decoration: none;
+  cursor: pointer;
+}
+#preview-body .wikilink:hover {
+  text-decoration: underline;
+}
+#preview-body img {
+  max-width: 100%;
+  border-radius: 4px;
+}
+#preview-body code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+  background: var(--code-bg);
+  color: var(--code);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+}
+#preview-body pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  overflow-x: auto;
+}
+#preview-body pre code {
+  background: none;
+  padding: 0;
+}
+#preview-body blockquote {
+  margin: 1em 0;
+  padding: 0.1em 1em;
+  border-left: 3px solid var(--border);
+  color: var(--quote);
+}
+#preview-body table {
+  border-collapse: collapse;
+}
+#preview-body th,
+#preview-body td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  text-align: left;
+}
+#preview-body th {
+  background: var(--bg-panel);
+}
+#preview-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+}
+#preview-body input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.preview-hint,
+.preview-missing {
+  color: var(--fg-muted);
+  font-style: italic;
 }
 
 /* ------------------------------------------------------------- tab bar */
@@ -1040,6 +1156,62 @@ body.tree-dragging * {
   padding: 0 2px;
 }
 
+/* `inline code`: monospace + tint, even when the editor font is proportional */
+.cm-inlinecode {
+  font-family: ui-monospace, monospace;
+  font-size: 0.93em;
+  background: var(--code-bg);
+  border-radius: 3px;
+}
+.cm-line.cm-codeblock .cm-inlinecode {
+  background: none; /* the code block already tints the whole line */
+}
+
+/* ------------------------------------------------------ dataview blocks */
+/* live results rendered below a ```dataview fence */
+
+.dv-results {
+  display: block;
+  margin: 4px 0 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  font-size: 0.93em;
+}
+.dv-results ul {
+  margin: 0;
+  padding-left: 1.3em;
+}
+.dv-results ul.dv-tasks {
+  list-style: none;
+  padding-left: 0.2em;
+}
+.dv-results table {
+  border-collapse: collapse;
+}
+.dv-results th,
+.dv-results td {
+  border: 1px solid var(--border);
+  padding: 2px 9px;
+  text-align: left;
+}
+.dv-results th {
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+.dv-link {
+  color: var(--link);
+  cursor: pointer;
+}
+.dv-link:hover {
+  text-decoration: underline;
+}
+.dv-note {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
 /* ------------------------------------------------------- share dialog */
 
 .share-body {
@@ -1105,6 +1277,107 @@ body.tree-dragging * {
   border: 1px solid var(--border);
   flex-shrink: 0;
 }
+.share-date {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font: inherit;
+  color-scheme: dark light;
+}
+.share-date.selected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.share-setup {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding: 8px 0 4px;
+  color: var(--fg-muted);
+}
+.share-setup summary {
+  cursor: pointer;
+}
+.share-setup ol {
+  margin: 6px 0;
+  padding-left: 1.5em;
+}
+.share-setup li {
+  padding: 2px 0;
+}
+.share-setup code {
+  font-family: var(--font-editor);
+  background: var(--code-bg);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+/* ------------------------------------------------------------ calendar */
+
+.calendar-box {
+  width: min(340px, 86vw);
+  padding: 10px 14px 14px;
+  outline: none;
+}
+.cal-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 10px;
+}
+.cal-title {
+  flex: 1;
+  text-align: center;
+  color: var(--fg);
+}
+.cal-head button {
+  border: 1px solid var(--border);
+  padding: 1px 9px;
+  color: var(--fg-muted);
+}
+.cal-head button:hover {
+  color: var(--fg);
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.cal-dow {
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 0.8em;
+  padding-bottom: 4px;
+}
+.cal-day {
+  position: relative;
+  text-align: center;
+  padding: 5px 0 9px;
+  color: var(--fg-muted);
+  border-radius: 4px;
+}
+.cal-day:hover {
+  color: var(--fg);
+}
+.cal-day.has-note {
+  color: var(--fg);
+}
+.cal-day.has-note::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.cal-day.today {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
 
 /* ------------------------------------------------------------- zen mode */
 /* fullscreen writing: chrome gone, centered column, larger type; the issue
@@ -1115,6 +1388,7 @@ body.zen #tabbar,
 body.zen #sidebar,
 body.zen #resizer,
 body.zen #pane2,
+body.zen #preview,
 body.zen .grip {
   display: none !important;
 }

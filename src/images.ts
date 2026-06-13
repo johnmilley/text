@@ -24,6 +24,12 @@ const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|ico|avif|tiff?|svg)$/i;
 export const isAudioFile = (name: string) =>
   /\.(mp3|wav|ogg|oga|m4a|flac|opus|aac|weba)$/i.test(name);
 
+/** Video formats recognized in the tree. Opening one hands the file to the
+ * system's default player — in-app playback through WebKitGTK is software-
+ * decoded and crash-prone, so the app never plays video itself. */
+export const isVideoFile = (name: string) =>
+  /\.(mp4|m4v|webm|mov|mkv|ogv)$/i.test(name);
+
 const MIME: Record<string, string> = {
   png: "image/png",
   jpg: "image/jpeg",

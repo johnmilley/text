@@ -244,6 +244,43 @@ article input[type="checkbox"] { margin-right: 0.45em; accent-color: var(--accen
 
 .raw-link { font-size: 0.85em; }
 
+/* giscus comments */
+#comments {
+  width: 100%;
+  max-width: 72ch;
+  margin: 0 auto;
+  padding: 0 32px 32px;
+}
+
+/* ------------------------------------------------------------ printing */
+/* print / save-as-PDF: content only, always light, no chrome */
+
+@media print {
+  :root, :root[data-theme="dark"] {
+    --bg: #fff;
+    --bg-panel: #fff;
+    --fg: #000;
+    --fg-muted: #444;
+    --accent: #000;
+    --border: #bbb;
+    --code-bg: #f4f4f4;
+  }
+  body { display: block; font-size: 11pt; }
+  #sidebar, #nav-button, #theme-toggle, footer, #comments { display: none !important; }
+  main { display: block; }
+  article { max-width: none; padding: 0; }
+  article a { color: #000; }
+  /* show where external links point */
+  article a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.8em;
+    color: #444;
+    word-break: break-all;
+  }
+  article pre, article blockquote, article img, article table { break-inside: avoid; }
+  article h1, article h2, article h3 { break-after: avoid; }
+}
+
 /* ------------------------------------------------------------ small screens */
 
 @media (max-width: 760px) {

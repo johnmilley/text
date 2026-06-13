@@ -181,27 +181,37 @@ function updatePageInfo() {
   $("#pdf-page-info").textContent = `page ${current} / ${doc.numPages}`;
 }
 
+// re-rendering every page is heavy — batch rapid zoom steps (wheel spins,
+// held keyboard shortcuts)
+let zoomTimer: number | undefined;
+const scheduleRelayout = () => {
+  window.clearTimeout(zoomTimer);
+  zoomTimer = window.setTimeout(() => void relayout(), 150);
+};
+
+/** Step the zoom (also bound to Ctrl+= / Ctrl+- while a PDF is open). */
+export function bumpPdfZoom(delta: number) {
+  if (!doc) return;
+  const next = clampZoom(Math.round((zoom + delta) * 10) / 10);
+  if (next === zoom) return;
+  zoom = next;
+  $("#pdf-zoom").textContent = `${Math.round(zoom * 100)}%`;
+  scheduleRelayout();
+}
+
+/** Back to fit-width (Ctrl+0 while a PDF is open). */
+export function resetPdfZoom() {
+  if (!doc) return;
+  zoom = 1;
+  $("#pdf-zoom").textContent = "100%";
+  void relayout();
+}
+
 export function initPdfView() {
-  const bumpZoom = (delta: number) => {
-    const next = clampZoom(Math.round((zoom + delta) * 10) / 10);
-    if (next === zoom) return;
-    zoom = next;
-    $("#pdf-zoom").textContent = `${Math.round(zoom * 100)}%`;
-    scheduleRelayout();
-  };
-  // re-rendering every page is heavy — batch rapid zoom steps (wheel spins)
-  let zoomTimer: number | undefined;
-  const scheduleRelayout = () => {
-    window.clearTimeout(zoomTimer);
-    zoomTimer = window.setTimeout(() => void relayout(), 150);
-  };
+  const bumpZoom = bumpPdfZoom;
   $("#pdf-shrink").addEventListener("click", () => bumpZoom(-0.1));
   $("#pdf-grow").addEventListener("click", () => bumpZoom(0.1));
-  $("#pdf-fit").addEventListener("click", () => {
-    zoom = 1;
-    $("#pdf-zoom").textContent = "100%";
-    void relayout();
-  });
+  $("#pdf-fit").addEventListener("click", resetPdfZoom);
   // Ctrl+wheel zooms (plain wheel keeps scrolling the pages)
   stage().addEventListener(
     "wheel",

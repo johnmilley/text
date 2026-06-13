@@ -1,4 +1,5 @@
 import type { Config } from "./api";
+import { baseKey } from "./keys";
 import { infoBox } from "./modal";
 
 /**
@@ -14,6 +15,10 @@ export interface SettingsHost {
   applyFontSizes(): void;
   applyMargin(): void;
   applyVim(): void;
+  /** line numbers + current-line highlight */
+  applyEditorView(): void;
+  /** open the bundled markdown reference note */
+  openDemo(): void;
   /** closes settings (pickers replace the modal) */
   pickTheme(): void;
   pickFont(): void;
@@ -114,18 +119,51 @@ export function openSettings(host: SettingsHost) {
       "px between text and window edge — small keeps wide data usable",
     );
 
+    const checkbox = (
+      get: () => boolean,
+      set: (v: boolean) => void,
+      apply: () => void,
+    ) => {
+      const input = el("input") as HTMLInputElement;
+      input.type = "checkbox";
+      input.checked = get();
+      input.addEventListener("change", () => {
+        set(input.checked);
+        apply();
+        host.save();
+      });
+      return input;
+    };
+
+    row(
+      "line numbers",
+      checkbox(
+        () => host.config.line_numbers,
+        (v) => (host.config.line_numbers = v),
+        host.applyEditorView,
+      ),
+    );
+    row(
+      "highlight current line",
+      checkbox(
+        () => host.config.highlight_line,
+        (v) => (host.config.highlight_line = v),
+        host.applyEditorView,
+      ),
+    );
+
     // ------------------------------------------------------------- editing
     section("editing");
 
-    const vim = el("input") as HTMLInputElement;
-    vim.type = "checkbox";
-    vim.checked = host.config.vim_mode;
-    vim.addEventListener("change", () => {
-      host.config.vim_mode = vim.checked;
-      host.applyVim();
-      host.save();
-    });
-    row("vim mode", vim, "modal editing via codemirror-vim");
+    row(
+      "vim mode",
+      checkbox(
+        () => host.config.vim_mode,
+        (v) => (host.config.vim_mode = v),
+        host.applyVim,
+      ),
+      "modal editing via codemirror-vim",
+    );
 
     // --------------------------------------------------------------- files
     section("files");
@@ -202,9 +240,12 @@ export function openSettings(host: SettingsHost) {
           kbd.textContent = "needs ctrl or alt…";
           return;
         }
+        // store the *unshifted* key (ctrl+shift+\, not ctrl+shift+|), so the
+        // combo matches what the dispatcher in main.ts looks up
+        const key = baseKey(e) ?? e.key.toLowerCase();
         const combo =
           `${e.ctrlKey || e.metaKey ? "ctrl+" : ""}${e.shiftKey ? "shift+" : ""}` +
-          `${e.altKey ? "alt+" : ""}${e.key.toLowerCase()}`;
+          `${e.altKey ? "alt+" : ""}${key}`;
         host.setKey(id, combo);
         done();
       };
@@ -230,9 +271,12 @@ export function openSettings(host: SettingsHost) {
 
     // ---------------------------------------------------------------- file
     const foot = el("div", "settings-foot");
+    const demo = el("button", "set-btn", "markdown reference");
+    demo.title = "open a demo note showing everything markdown can do here";
+    demo.addEventListener("click", host.openDemo);
     const openRaw = el("button", "set-btn", "open config.toml");
     openRaw.addEventListener("click", host.openConfigFile);
-    foot.appendChild(openRaw);
+    foot.append(demo, openRaw);
     body.appendChild(foot);
   });
 }

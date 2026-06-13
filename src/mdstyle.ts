@@ -117,6 +117,44 @@ const lineStyles = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
+/** `inline code` spans: monospace + tinted background (styles.css), so
+ * backticks read as code even when the editor font is proportional —
+ * the same way bold/italic get their typographic treatment. */
+function buildInlineCode(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const range of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from: range.from,
+      to: range.to,
+      enter(node) {
+        if (node.name === "InlineCode") {
+          builder.add(node.from, node.to, Decoration.mark({ class: "cm-inlinecode" }));
+        }
+      },
+    });
+  }
+  return builder.finish();
+}
+
+const inlineCode = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = buildInlineCode(view);
+    }
+    update(update: ViewUpdate) {
+      if (
+        update.docChanged ||
+        update.viewportChanged ||
+        syntaxTree(update.state) !== syntaxTree(update.startState)
+      ) {
+        this.decorations = buildInlineCode(update.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
+
 /** YAML frontmatter at the top of the file, dimmed as metadata. */
 function buildFrontmatter(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
@@ -243,7 +281,7 @@ export function toggleCheckboxAt(view: EditorView, pos: number): boolean {
 
 /** Extensions for markdown documents. */
 export function markdownStyling(): Extension {
-  return [lineStyles, frontmatter, wikilinks, hashtags, checkboxes];
+  return [lineStyles, inlineCode, frontmatter, wikilinks, hashtags, checkboxes];
 }
 
 /** The shared highlight style (markdown inline + generic code tokens). */

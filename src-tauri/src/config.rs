@@ -21,6 +21,8 @@ const HEADER: &str = r#"# text — config
 #   editor_margin horizontal space (px) between the editor text and the
 #                 window edge. Small by default so wide data fits; size the
 #                 window to taste. Zen mode centers a column regardless.
+#   line_numbers  show a line-number gutter in the editor (off by default)
+#   highlight_line subtly tint the cursor's line (on by default)
 #   vim_mode      modal editing via codemirror-vim
 #   root          last opened notes folder (managed by the app)
 #   recent_roots  folder-switcher history (managed by the app)
@@ -47,6 +49,10 @@ pub struct Config {
     pub editor_font: String,
     /// horizontal space (px) between the editor text and the window edge
     pub editor_margin: u16,
+    /// show a line-number gutter in the editor
+    pub line_numbers: bool,
+    /// subtly tint the line the cursor is on
+    pub highlight_line: bool,
     pub vim_mode: bool,
     /// last opened notes folder
     pub root: Option<String>,
@@ -83,6 +89,9 @@ fn default_keys() -> BTreeMap<String, String> {
         ("prev_tab", "ctrl+shift+tab"),
         ("new_window", "ctrl+shift+n"),
         ("split", "ctrl+shift+\\"),
+        ("preview", "ctrl+shift+m"),
+        ("focus_tree", "ctrl+e"),
+        ("calendar", "ctrl+shift+c"),
         ("zen", "alt+z"),
     ]
     .into_iter()
@@ -107,6 +116,8 @@ impl Default for Config {
             ui_font_size: 13,
             editor_font: "".into(),
             editor_margin: 24,
+            line_numbers: false,
+            highlight_line: true,
             vim_mode: false,
             root: None,
             recent_roots: vec![],

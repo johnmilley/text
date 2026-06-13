@@ -45,6 +45,17 @@ pub fn is_audio_file(path: &Path) -> bool {
     }
 }
 
+/// Video formats the built-in player can handle (playback uses the system's
+/// media stack — no codecs are bundled). Shown in the tree, never searched.
+pub const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "webm", "mov", "mkv", "ogv"];
+
+pub fn is_video_file(path: &Path) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => VIDEO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()),
+        None => false,
+    }
+}
+
 /// PDF documents — shown in the tree and rendered by the in-app viewer.
 pub fn is_pdf_file(path: &Path) -> bool {
     matches!(
@@ -93,6 +104,7 @@ fn walk(dir: &Path, depth: usize) -> Result<Vec<Entry>, String> {
             && (is_text_file(&path)
                 || is_image_file(&path)
                 || is_audio_file(&path)
+                || is_video_file(&path)
                 || is_pdf_file(&path))
         {
             files.push(Entry {

@@ -44,6 +44,40 @@ function render(body: HTMLElement, folder: string, status: api.ShareStatus) {
   renderOrphans(body, status.orphans, folder);
 }
 
+/** Setup steps, shown collapsed in the create view and expanded on tooling
+ * errors. Sharing runs entirely on the local user's own GitHub account —
+ * anyone can use it once the gh CLI is signed in. */
+function setupHelp(open: boolean): HTMLElement {
+  const details = document.createElement("details");
+  details.className = "share-setup";
+  if (open) details.open = true;
+  const summary = el("summary", "", "how sharing works / set it up with your own GitHub");
+  const steps = el("div", "share-note");
+  steps.append(
+    "sharing publishes to a public ",
+    el("code", "", "text-shares"),
+    " repo on your own GitHub account (GitHub Pages) — no third-party server, no stored tokens. one-time setup:",
+  );
+  const list = document.createElement("ol");
+  for (const step of [
+    "create a free github.com account (if you don't have one)",
+    "install the GitHub CLI: https://cli.github.com (e.g. `dnf install gh` / `brew install gh`)",
+    "sign in once: run `gh auth login` in a terminal",
+  ]) {
+    const li = document.createElement("li");
+    li.textContent = step;
+    list.appendChild(li);
+  }
+  const tail = el(
+    "div",
+    "share-note",
+    "after that, every share/update/destroy here acts on your account. " +
+      "the app creates the repo and enables Pages automatically on first share.",
+  );
+  details.append(summary, steps, list, tail);
+  return details;
+}
+
 // ------------------------------------------------------------ create view
 
 function renderCreate(body: HTMLElement, folder: string) {
@@ -62,16 +96,51 @@ function renderCreate(body: HTMLElement, folder: string) {
     ["never", null],
   ];
   let expires: number | null = 7;
+  const dateInput = el("input", "share-date") as HTMLInputElement;
+  dateInput.type = "date";
+  dateInput.title = "expire on a specific date";
   const buttons = choices.map(([label, days]) => {
     const b = el("button", days === expires ? "selected" : "", label);
     b.addEventListener("click", () => {
       expires = days;
+      dateInput.value = "";
+      dateInput.classList.remove("selected");
       for (const other of buttons) other.classList.remove("selected");
       b.classList.add("selected");
     });
     return b;
   });
-  expiry.append(el("span", "share-caption", "link expires:"), ...buttons);
+  // a custom calendar date converts to whole days from now (rounded up)
+  dateInput.addEventListener("change", () => {
+    if (!dateInput.value) return;
+    const target = new Date(dateInput.value + "T23:59:59").getTime();
+    const days = Math.ceil((target - Date.now()) / 86_400_000);
+    if (days < 1) {
+      dateInput.value = ""; // past dates make no sense for an expiry
+      return;
+    }
+    expires = days;
+    for (const other of buttons) other.classList.remove("selected");
+    dateInput.classList.add("selected");
+  });
+  expiry.append(el("span", "share-caption", "link expires:"), ...buttons, dateInput);
+
+  const commentsRow = el("div", "share-expiry");
+  const commentsBox = el("input") as HTMLInputElement;
+  commentsBox.type = "checkbox";
+  commentsBox.id = "share-comments";
+  const commentsLabel = el("label", "share-caption", "reader comments (GitHub Discussions)");
+  commentsLabel.setAttribute("for", "share-comments");
+  commentsRow.append(commentsBox, commentsLabel);
+  const commentsNote = el(
+    "div",
+    "share-note",
+    "readers comment through giscus with their GitHub accounts; threads live in " +
+      "your text-shares repo's Discussions. one-time: install the giscus app on " +
+      "that repo at github.com/apps/giscus (comments stay blank until then).",
+  );
+  commentsNote.hidden = true;
+  commentsBox.addEventListener("change", () => (commentsNote.hidden = !commentsBox.checked));
 
   const statusLine = el("div", "share-status", "");
   const row = el("div", "modal-buttons");
@@ -82,7 +151,7 @@ function renderCreate(body: HTMLElement, folder: string) {
     create.disabled = true;
     statusLine.textContent = "exporting and pushing — this can take a minute…";
     api
-      .createShare(folder, expires)
+      .createShare(folder, expires, commentsBox.checked)
       .then((result) => {
         body.replaceChildren();
         renderActive(body, result.share, result);
@@ -91,10 +160,15 @@ function renderCreate(body: HTMLElement, folder: string) {
       .catch((err) => {
         create.disabled = false;
         statusLine.replaceChildren(el("span", "share-error", String(err)));
+        // tooling problems → unfold the setup instructions
+        const msg = String(err).toLowerCase();
+        if (msg.includes("gh") || msg.includes("git") || msg.includes("signed in")) {
+          body.querySelector<HTMLDetailsElement>(".share-setup")?.toggleAttribute("open", true);
+        }
       });
   });
 
-  body.append(note, expiry, statusLine, row);
+  body.append(note, expiry, commentsRow, commentsNote, statusLine, row, setupHelp(false));
 }
 
 // ------------------------------------------------------------ active view
@@ -110,8 +184,19 @@ function renderActive(body: HTMLElement, share: api.ShareEntry, result?: api.Sha
     "div",
     "share-note",
     `created ${fmtDate(share.created)} · ` +
-      (share.expires ? `expires ${fmtDate(share.expires)}` : "never expires"),
+      (share.expires ? `expires ${fmtDate(share.expires)}` : "never expires") +
+      (share.comments ? " · comments on" : ""),
   );
+  if (share.comments) {
+    meta.append(
+      el(
+        "div",
+        "share-note",
+        "comments need the giscus app installed once on " +
+          `${share.comments.repo} — github.com/apps/giscus`,
+      ),
+    );
+  }
 
   const statusLine = el("div", "share-status", "");
   if (result) {
