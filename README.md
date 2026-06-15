@@ -1,11 +1,8 @@
 # text
 
-A plain editor for a folder of plain files.
+A markdown/plain text editor designed to get out of the way and to let you do what's most important; write.
 
-`text` points at a directory of notes — typically inside Dropbox — and stays
-out of the way: a file tree, one buffer, markdown shown as source with
-typographic styling, and search that covers the whole folder. No database,
-no vault format; the folder is the whole truth.
+`text` points at a directory of notes. You can any format plain text. If you find an unsupported format and would like it supported, let me know!
 
 Built with Tauri 2 (Rust) and CodeMirror 6.
 
@@ -46,7 +43,7 @@ Built with Tauri 2 (Rust) and CodeMirror 6.
 | `Ctrl+Shift+B` | backlinks to the open note |
 | `Ctrl+Shift+T` | theme picker (live preview) |
 | `Ctrl+Shift+E` | editor font picker (live preview) |
-| `Ctrl+Shift+S` | share the notes folder as a website |
+| `Ctrl+Shift+S` | publish the folder as a website (ssg mod) |
 | `Ctrl+B` / `Ctrl+I` | bold / italic |
 | `Ctrl+Shift+X` | strikethrough |
 | `Ctrl+1` … `Ctrl+6` | heading level (same level again clears it) |
@@ -142,27 +139,25 @@ creates one on click; page months with the arrows and years with `«` / `»`
 
 A `dataview` code block renders a live list, table, or open-task roll-up of
 your notes in place — a small subset of the Obsidian plugin. See
-[docs/DATAVIEW.md](docs/DATAVIEW.md) for the query syntax and examples.
+[docs/DATAVIEW.md](docs/DATAVIEW.md) for the query syntax and examples. Like
+publishing, this is a mod (`src/mods/dataview`), built on the block-renderer
+hook in the [mod API](MOD_API.md).
 
-## Sharing (GitHub Pages)
+## Publishing (the `ssg` mod)
 
-The **share** button in the sidebar footer (or `Ctrl+Shift+S`) publishes the
-whole notes folder as a static website; right-click any folder → **share…**
-to publish just that part. The site is rendered markdown with working
-wikilinks and embeds, syntax-highlighted code files, and downloadable
-attachments (pdf/zip/anything), in a clean light/dark design with a toggle.
-Nothing is shared unless you do this; each share lives at an unguessable URL
-under
-`https://<you>.github.io/text-shares/<slug>/` — public to anyone holding
-the link, so don't share secrets.
+The **publish** button in the sidebar footer (or `Ctrl+Shift+S`, or right-click
+a folder → **publish as website…**) turns a folder of notes into a website:
+rendered markdown with working wikilinks and embeds, downloadable attachments,
+and a sidebar nav, in a clean light/dark design. Three destinations:
 
-The dialog offers expiry (1 day / week / month / never; expired links are
-taken down automatically on launch), **update** (re-publish the folder's
-current contents — "already up to date" when nothing changed), **copy
-link**, and **destroy link**. Requires `git` and a signed-in GitHub CLI
-(`gh auth login`); the `text-shares` repo is created on first share.
-Renaming a shared folder orphans its share — the dialog lists orphans so
-you can destroy them.
+- **local folder** — write the generated site to a folder you pick;
+- **GitHub Pages** — publish to a repo's `gh-pages` branch via the GitHub API
+  (paste a personal access token with Contents write access; no `git`/`gh`
+  needed);
+- **PDF** — assemble the folder into one page and open the print dialog.
+
+Publishing is **not built in** — it's a mod (`src/mods/ssg`), and the first
+worked example of the mod API. See [MOD_API.md](MOD_API.md) to write your own.
 
 ## Configuration
 
@@ -257,9 +252,7 @@ src-tauri/src/      Rust backend (one module per concern)
   windows.rs        extra app windows (new window / detached tabs)
   themes.rs         TOML theme loading; seeds bundled themes on first run
   config.rs         ~/.config/text/config.toml (incl. [keys] rebinding)
-  export.rs         folder → static HTML site (markdown, code pages, nav)
-  share.rs          share registry + git/gh publishing to GitHub Pages
-src-tauri/templates/share/   page template, site CSS, vendored highlight.js
+  render.rs         markdown → HTML preview core (host renderer for mods too)
 src-tauri/themes/   bundled theme files (embedded at compile time)
 src/                frontend (vanilla TS, no framework)
   main.ts           app shell: tree, tabs, split pane, save/conflict flow, shortcuts
@@ -267,13 +260,18 @@ src/                frontend (vanilla TS, no framework)
   tables.ts         markdown table editing (Tab/Enter navigation, auto-format)
   settings.ts       the settings panel (Ctrl+,) over config.toml
   mdstyle.ts        markdown line/inline styling, wikilinks, tags, frontmatter
+  blockrender.ts    generic fenced-code block-renderer hook for mods
   images.ts         image/audio loading (base64), inline image embeds
   pdf.ts            in-app PDF viewer (pdf.js, lazy-loaded, selectable text)
-  share.ts          the share dialog (create/update/destroy links)
   theme.ts          theme tokens → CSS custom properties
   fonts.ts          bundled editor fonts (fontsource woff2 imports)
   modal.ts          picker / prompt / confirm dialogs
   fuzzy.ts          subsequence scoring for the switcher
+  mods/             the mod (extension) system — see MOD_API.md
+    types.ts        the TextAPI surface mods are given
+    registry.ts     build-time list of loaded mods
+    ssg/            reference mod: publish a folder as a website (local/Pages/PDF)
+    dataview/       reference mod: live ```dataview query blocks
 ```
 
 Everything is themed through CSS variables; the editor and UI share one

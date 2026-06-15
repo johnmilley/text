@@ -347,3 +347,41 @@ pub fn rename_path(from: String, to: String) -> Result<(), String> {
 pub fn trash_path(path: String) -> Result<(), String> {
     trash::delete(Path::new(&path)).map_err(|e| e.to_string())
 }
+
+// ---------------------------------------------------------------- mod primitives
+//
+// Generic filesystem capabilities exposed to mods (see MOD_API.md). They take
+// absolute destination paths and create parent directories as needed, so a mod
+// can lay down a generated tree (e.g. a static site) without bespoke backend
+// code per feature.
+
+/// Read any file as base64 — for binary attachments a mod needs to copy or
+/// upload (the static-site generator uses this for the GitHub Pages sink).
+#[tauri::command]
+pub fn read_base64(path: String) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = fs::read(Path::new(&path)).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+/// Write text to an exact path, creating parent directories. Non-atomic and
+/// without the editor's conflict check — meant for generated output, not notes.
+#[tauri::command]
+pub fn write_text_file(path: String, content: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if let Some(dir) = p.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    fs::write(p, content.as_bytes()).map_err(|e| format!("{}: {e}", p.display()))
+}
+
+/// Copy a file to an exact destination path, creating parent directories.
+#[tauri::command]
+pub fn copy_file(src: String, dest: String) -> Result<(), String> {
+    let dest = Path::new(&dest);
+    if let Some(dir) = dest.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    fs::copy(Path::new(&src), dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    Ok(())
+}

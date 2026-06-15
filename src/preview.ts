@@ -3,7 +3,7 @@ import * as api from "./api";
 /**
  * Rendered-markdown preview (Ctrl+Shift+M): a pane beside the editor, laid
  * out by the same flex row as the split pane. Markdown is rendered by the
- * backend (pulldown-cmark — the exact renderer shared pages use), then local
+ * backend (pulldown-cmark — also the host renderer mods use), then local
  * targets are resolved here: `data-embed` images through the app's image
  * resolver, `data-wikilink` / `data-path` links back into the app.
  */
@@ -29,16 +29,40 @@ let renderSeq = 0;
 
 export const previewOn = () => on;
 
+let pvZoom = Number(localStorage.getItem("text.previewZoom")) || 1;
+let pvTheme = localStorage.getItem("text.previewTheme") ?? "";
+
+function applyZoom() {
+  pvZoom = Math.min(2.5, Math.max(0.6, Math.round(pvZoom * 10) / 10));
+  $("#preview-body").style.setProperty("--pv-zoom", String(pvZoom));
+  $("#preview-zoom").textContent = `${Math.round(pvZoom * 100)}%`;
+  localStorage.setItem("text.previewZoom", String(pvZoom));
+}
+
+function applyTheme() {
+  const body = $("#preview-body");
+  body.classList.remove("pv-textbook", "pv-classroom", "pv-sepia");
+  if (pvTheme) body.classList.add(`pv-${pvTheme}`);
+  localStorage.setItem("text.previewTheme", pvTheme);
+}
+
 export function initPreview(h: PreviewHost, onClose: () => void) {
   host = h;
   $("#preview-close").addEventListener("click", onClose);
+  $("#preview-zoom-out").addEventListener("click", () => ((pvZoom -= 0.1), applyZoom()));
+  $("#preview-zoom-in").addEventListener("click", () => ((pvZoom += 0.1), applyZoom()));
+  const themeSel = $<HTMLSelectElement>("#preview-theme");
+  themeSel.value = pvTheme;
+  themeSel.addEventListener("change", () => ((pvTheme = themeSel.value), applyTheme()));
+  applyZoom();
+  applyTheme();
   $("#preview-body").addEventListener("click", (e) => {
     const a = (e.target as HTMLElement).closest("a");
     if (!a) return;
     e.preventDefault();
     const wiki = a.dataset.wikilink;
     const rel = a.dataset.path;
-    if (wiki) host.openWikilink(wiki);
+    if (wiki) host.openWikilink(wiki.split("#")[0]);
     else if (rel) host.openRelPath(rel);
     else if (/^https?:/i.test(a.href)) host.openExternal(a.href);
     else if (a.getAttribute("href")?.startsWith("#")) {

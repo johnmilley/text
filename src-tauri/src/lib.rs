@@ -1,9 +1,8 @@
 mod config;
-mod export;
 mod files;
 mod query;
+mod render;
 mod search;
-mod share;
 mod themes;
 mod watch;
 mod windows;
@@ -73,15 +72,13 @@ pub fn run() {
             files::rename_path,
             files::trash_path,
             files::stat_mtime,
+            files::read_base64,
+            files::write_text_file,
+            files::copy_file,
             search::search_text,
             search::find_backlinks,
             query::collect_notes,
-            export::render_preview,
-            share::share_status,
-            share::create_share,
-            share::update_share,
-            share::destroy_share,
-            share::cleanup_expired_shares,
+            render::render_preview,
             themes::list_themes,
             themes::themes_dir_path,
             config::load_config,

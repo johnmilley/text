@@ -22,6 +22,9 @@ interface PickerOpts {
   /** invoked when a row's inline action button is clicked. May mutate the
    * `items` array in place; the picker re-renders afterwards. */
   onAction?: (item: PickerItem) => void;
+  /** rows to show while the query is empty (e.g. recent files); once the user
+   * types, matching falls back to the full `items` list. */
+  emptyItems?: PickerItem[];
 }
 
 let openModal: (() => void) | null = null;
@@ -70,7 +73,10 @@ export function pick(items: PickerItem[], opts: PickerOpts): Promise<PickerItem 
     };
 
     const render = () => {
-      shown = fuzzyFilter(input.value, items, (i) => i.label + " " + (i.detail ?? ""));
+      shown =
+        opts.emptyItems && !input.value.trim()
+          ? opts.emptyItems
+          : fuzzyFilter(input.value, items, (i) => i.label + " " + (i.detail ?? ""));
       sel = Math.min(sel, Math.max(0, shown.length - 1));
       list.replaceChildren(
         ...shown.map((item, i) => {

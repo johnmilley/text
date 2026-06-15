@@ -52,7 +52,6 @@
         <footer id="sidebar-foot">
           <button id="btn-daily" title="Today's daily note (Ctrl+Shift+D)">today</button>
           <button id="btn-calendar" title="Daily-note calendar (Ctrl+Shift+C)">calendar</button>
-          <button id="btn-share" title="Share this folder as a website (Ctrl+Shift+S)">share</button>
           <button id="btn-config" title="Settings (Ctrl+,)">settings</button>
         </footer>
       </aside>
@@ -129,7 +128,19 @@
         <!-- rendered markdown preview (Ctrl+Shift+M) -->
         <div id="preview" hidden>
           <div id="preview-bar">
+            <span class="preview-badge">preview</span>
             <span id="preview-name">preview</span>
+            <span id="preview-tools">
+              <button id="preview-zoom-out" title="Zoom out">−</button>
+              <span id="preview-zoom" title="Preview zoom">100%</span>
+              <button id="preview-zoom-in" title="Zoom in">+</button>
+              <select id="preview-theme" title="Reading style">
+                <option value="">app theme</option>
+                <option value="textbook">textbook</option>
+                <option value="classroom">classroom</option>
+                <option value="sepia">sepia</option>
+              </select>
+            </span>
             <button id="preview-close" title="Close preview (Ctrl+Shift+M)">×</button>
           </div>
           <div id="preview-body"></div>

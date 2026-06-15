@@ -413,13 +413,50 @@ button:hover {
 #preview-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 6px 2px 12px;
+  gap: 6px;
+  padding: 2px 6px 2px 9px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
+  /* a left accent stripe sets the preview apart from a split editor pane */
+  box-shadow: inset 3px 0 0 var(--accent);
   color: var(--fg-muted);
   font-size: 0.85em;
+}
+.preview-badge {
+  flex-shrink: 0;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+#preview-name {
+  flex: 1;
+}
+#preview-tools {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+#preview-tools button {
+  min-width: 20px;
+  padding: 0 4px;
+}
+#preview-zoom {
+  min-width: 38px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+#preview-theme {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: inherit;
+  padding: 1px 3px;
 }
 #preview-body {
   flex: 1;
@@ -427,7 +464,7 @@ button:hover {
   overflow-y: auto;
   padding: 24px 28px 50vh;
   font-family: var(--font-editor);
-  font-size: var(--editor-font-size, 15px);
+  font-size: calc(var(--editor-font-size, 15px) * var(--pv-zoom, 1));
   line-height: 1.65;
 }
 #preview-body h1, #preview-body h2, #preview-body h3 {
@@ -500,6 +537,133 @@ button:hover {
 .preview-missing {
   color: var(--fg-muted);
   font-style: italic;
+}
+
+/* preview themes — a clean reading page independent of the app theme, for
+   reviewing notes as they'd read in a textbook/handout. Each centres a column
+   and sets its own colours so it looks the same in any app theme. */
+#preview-body.pv-textbook > *,
+#preview-body.pv-classroom > *,
+#preview-body.pv-sepia > * {
+  max-width: 46rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+#preview-body.pv-textbook {
+  background: #fcfcf9;
+  color: #1f2328;
+  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+  line-height: 1.7;
+}
+#preview-body.pv-textbook h1,
+#preview-body.pv-textbook h2,
+#preview-body.pv-textbook h3 {
+  color: #0b3d2e;
+}
+#preview-body.pv-textbook h2 {
+  border-bottom-color: #ddd6c7;
+}
+#preview-body.pv-textbook a {
+  color: #1a5fb4;
+}
+#preview-body.pv-textbook blockquote {
+  border-left-color: #c9b88a;
+  color: #5a5247;
+}
+#preview-body.pv-textbook code {
+  background: #efece3;
+  color: #7a3b2e;
+}
+#preview-body.pv-textbook pre {
+  background: #f4f1e8;
+  border-color: #e0dac9;
+}
+#preview-body.pv-textbook th {
+  background: #f0ece0;
+}
+#preview-body.pv-textbook th,
+#preview-body.pv-textbook td,
+#preview-body.pv-textbook hr {
+  border-color: #e0dac9;
+}
+
+#preview-body.pv-classroom {
+  background: #ffffff;
+  color: #232323;
+  font-family: "Inter Variable", system-ui, sans-serif;
+  line-height: 1.8;
+}
+#preview-body.pv-classroom h1 {
+  color: #14305c;
+}
+#preview-body.pv-classroom h2 {
+  color: #1a4789;
+  border-bottom-color: #e3e8f0;
+}
+#preview-body.pv-classroom h3 {
+  color: #2a5db0;
+}
+#preview-body.pv-classroom a {
+  color: #1a5fb4;
+}
+#preview-body.pv-classroom blockquote {
+  border-left-color: #6f9ce8;
+  background: #f4f8ff;
+  color: #3a4a63;
+}
+#preview-body.pv-classroom code {
+  background: #eef2f8;
+  color: #b4332a;
+}
+#preview-body.pv-classroom pre {
+  background: #f6f8fb;
+  border-color: #e3e8f0;
+}
+#preview-body.pv-classroom th {
+  background: #eef2f8;
+}
+#preview-body.pv-classroom th,
+#preview-body.pv-classroom td,
+#preview-body.pv-classroom hr {
+  border-color: #e3e8f0;
+}
+
+#preview-body.pv-sepia {
+  background: #f4ecd8;
+  color: #433422;
+  font-family: "Literata Variable", Georgia, serif;
+  line-height: 1.75;
+}
+#preview-body.pv-sepia h1,
+#preview-body.pv-sepia h2,
+#preview-body.pv-sepia h3 {
+  color: #5b3a1a;
+}
+#preview-body.pv-sepia h2 {
+  border-bottom-color: #ddcca8;
+}
+#preview-body.pv-sepia a {
+  color: #9a5b1e;
+}
+#preview-body.pv-sepia blockquote {
+  border-left-color: #c2a366;
+  color: #6a5436;
+}
+#preview-body.pv-sepia code {
+  background: #e8dcbf;
+  color: #7a3b1e;
+}
+#preview-body.pv-sepia pre {
+  background: #ece1c6;
+  border-color: #ddcca8;
+}
+#preview-body.pv-sepia th {
+  background: #e8dcbf;
+}
+#preview-body.pv-sepia th,
+#preview-body.pv-sepia td,
+#preview-body.pv-sepia hr {
+  border-color: #ddcca8;
 }
 
 /* ------------------------------------------------------------- tab bar */
@@ -1287,105 +1451,67 @@ body.tree-dragging * {
   font-style: italic;
 }
 
-/* ------------------------------------------------------- share dialog */
+/* ------------------------------------------------- publish dialog (ssg mod) */
 
-.share-body {
-  padding: 4px 12px 0;
+.ssg-box {
+  width: min(440px, 92vw);
 }
-.share-note {
-  color: var(--fg-muted);
-  margin: 6px 0;
-}
-.share-caption {
-  color: var(--fg-muted);
-}
-.share-expiry {
+.ssg-tabs {
   display: flex;
-  align-items: center;
   gap: 6px;
-  margin: 10px 0 4px;
+  margin: 6px 0 10px;
 }
-.share-expiry button {
+.ssg-tabs button {
   border: 1px solid var(--border);
 }
-.share-expiry button.selected {
+.ssg-tabs button.selected {
   border-color: var(--accent);
   color: var(--accent);
 }
-.share-url {
-  font-family: var(--font-editor);
-  font-size: 0.92em;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 9px;
-  margin: 8px 0 4px;
-  overflow-wrap: anywhere;
-}
-.share-url a {
-  color: var(--link);
-  text-decoration: none;
-}
-.share-status {
-  min-height: 1.2em;
-  margin: 8px 0 2px;
-  color: var(--fg-muted);
-}
-.share-error {
-  color: var(--accent);
-  overflow-wrap: anywhere;
-}
-.share-orphans {
-  border-top: 1px solid var(--border);
-  margin-top: 10px;
-  padding: 8px 0;
-}
-.share-orphan-row {
+.ssg-opts {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 3px 0;
-  overflow-wrap: anywhere;
+  flex-direction: column;
+  gap: 8px;
 }
-.share-orphan-row button {
-  border: 1px solid var(--border);
-  flex-shrink: 0;
+.ssg-note {
+  color: var(--fg-muted);
+  margin: 2px 0;
 }
-.share-date {
+.ssg-caption {
+  color: var(--fg-muted);
+  display: block;
+  margin-bottom: 2px;
+}
+.ssg-field {
+  display: flex;
+  flex-direction: column;
+}
+.ssg-input {
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 2px 6px;
+  border-radius: 4px;
+  padding: 5px 8px;
   font: inherit;
-  color-scheme: dark light;
 }
-.share-date.selected {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.share-setup {
-  border-top: 1px solid var(--border);
-  margin-top: 12px;
-  padding: 8px 0 4px;
+.ssg-status {
+  min-height: 1.2em;
+  margin-top: 8px;
   color: var(--fg-muted);
+  overflow-wrap: anywhere;
 }
-.share-setup summary {
-  cursor: pointer;
+.ssg-error {
+  color: var(--accent);
+  overflow-wrap: anywhere;
 }
-.share-setup ol {
-  margin: 6px 0;
-  padding-left: 1.5em;
-}
-.share-setup li {
-  padding: 2px 0;
-}
-.share-setup code {
+.ssg-url {
+  display: inline-block;
+  margin-top: 4px;
   font-family: var(--font-editor);
-  background: var(--code-bg);
-  border-radius: 3px;
-  padding: 0 4px;
+  font-size: 0.92em;
+  color: var(--link);
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 /* ------------------------------------------------------------ calendar */
@@ -1462,10 +1588,15 @@ body.zen #titlebar,
 body.zen #tabbar,
 body.zen #sidebar,
 body.zen #resizer,
-body.zen #pane2,
-body.zen #preview,
 body.zen .grip {
   display: none !important;
+}
+/* split and preview stay usable in zen, but without the giant typewriter
+   padding that only makes sense for a single centred column */
+body.zen #content:has(#pane2:not([hidden])) .cm-content,
+body.zen #content:has(#preview:not([hidden])) .cm-content {
+  padding-top: 12vh;
+  padding-bottom: 30vh;
 }
 body.zen .cm-editor {
   font-size: calc(var(--editor-font-size, 15px) * 1.3);

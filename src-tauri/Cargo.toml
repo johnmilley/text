@@ -31,5 +31,4 @@ tauri-plugin-dialog = "2"
 base64 = "0.22"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 rand = "0.9"
-percent-encoding = "2"
 

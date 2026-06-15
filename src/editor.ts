@@ -20,7 +20,7 @@ import { vim } from "@replit/codemirror-vim";
 import { baseHighlighting, markdownStyling, toggleCheckboxAt, urlAt, wikilinkAt } from "./mdstyle";
 import { imageEmbeds, type ImageResolver } from "./images";
 import { tableNextCell, tableNextRow, tablePrevCell } from "./tables";
-import { dataviewBlocks, type DataviewHost } from "./dataview";
+import { blockRenderers, type BlockRenderRuntime } from "./blockrender";
 
 export interface NoteRef {
   name: string; // file name without extension
@@ -40,8 +40,8 @@ export interface EditorCallbacks {
   importImageBlob: (blob: File) => Promise<string | null>;
   onNavBack: () => void;
   onNavForward: () => void;
-  /** data + navigation for `dataview` query blocks (omit to disable) */
-  dataview?: DataviewHost;
+  /** mod-registered fenced-code block renderers (omit to disable) */
+  blockRender?: BlockRenderRuntime;
 }
 
 /** Files that get markdown styling, embeds, and link shortcuts. */
@@ -302,6 +302,20 @@ export class Editor {
               { key: "Alt-ArrowRight", run: () => (cbs.onNavForward(), true) },
             ]),
         {
+          // open a blank line above the current one (keeping its indent)
+          key: "Shift-Mod-Enter",
+          run: (view) => {
+            const line = view.state.doc.lineAt(view.state.selection.main.head);
+            const indent = /^[\t ]*/.exec(line.text)![0];
+            view.dispatch({
+              changes: { from: line.from, insert: indent + "\n" },
+              selection: { anchor: line.from + indent.length },
+              scrollIntoView: true,
+            });
+            return true;
+          },
+        },
+        {
           key: "Mod-Enter",
           run: (view) => {
             const target = wikilinkAt(view, view.state.selection.main.head);
@@ -436,7 +450,7 @@ export class Editor {
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           markdownStyling(),
           imageEmbeds(this.callbacks.resolveImage),
-          this.callbacks.dataview ? dataviewBlocks(this.callbacks.dataview) : [],
+          this.callbacks.blockRender ? blockRenderers(this.callbacks.blockRender) : [],
         ]),
       });
       return;

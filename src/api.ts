@@ -76,46 +76,17 @@ export const importFile = (src: string, destDir: string) =>
 export const writeBase64 = (destDir: string, name: string, base64: string) =>
   invoke<string>("write_base64", { destDir, name, base64 });
 export const trashPath = (path: string) => invoke<void>("trash_path", { path });
+
+// generic filesystem primitives for mods (see src/mods/types.ts, MOD_API.md)
+export const readBase64 = (path: string) => invoke<string>("read_base64", { path });
+export const writeTextFile = (path: string, content: string) =>
+  invoke<void>("write_text_file", { path, content });
+export const copyFile = (src: string, dest: string) =>
+  invoke<void>("copy_file", { src, dest });
 export const searchText = (root: string, query: string) =>
   invoke<Hit[]>("search_text", { root, query });
 export const findBacklinks = (root: string, target: string) =>
   invoke<Hit[]>("find_backlinks", { root, target });
-export interface CommentsCfg {
-  repo: string;
-  repo_id: string;
-  category: string;
-  category_id: string;
-}
-
-export interface ShareEntry {
-  folder: string;
-  slug: string;
-  repo: string;
-  url: string;
-  created: number; // unix seconds
-  expires: number | null;
-  comments: CommentsCfg | null;
-}
-
-export interface ShareStatus {
-  entry: ShareEntry | null;
-  orphans: ShareEntry[];
-}
-
-export interface ShareResult {
-  share: ShareEntry;
-  pushed: boolean;
-  pages: number;
-  skipped: string[];
-}
-
-export const shareStatus = (folder: string) => invoke<ShareStatus>("share_status", { folder });
-export const createShare = (folder: string, expiresDays: number | null, comments: boolean) =>
-  invoke<ShareResult>("create_share", { folder, expiresDays, comments });
-export const updateShare = (folder: string) => invoke<ShareResult>("update_share", { folder });
-export const destroyShare = (folder: string) => invoke<void>("destroy_share", { folder });
-export const cleanupShares = () => invoke<string[]>("cleanup_expired_shares");
-
 export interface WindowInit {
   root: string | null;
   file: string | null;

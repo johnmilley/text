@@ -3,7 +3,7 @@
  * like any other note. Open it with the preview pane (Ctrl+Shift+M) for a
  * live side-by-side source/result comparison. */
 
-export const DEMO_FILE = "markdown reference.md";
+export const DEMO_FILE = "md_reference.md";
 
 export const DEMO_NOTE = `---
 status: example
@@ -74,7 +74,7 @@ def hello(name: str) -> str:
 
 ![[photo.png]] embeds an image (also \`![[photo.png|300]]\` for a width);
 \`![alt](path/to/img.png)\` works too. Drop or paste images straight into
-a note. \`![[lecture.pdf]]\` becomes an attachment link on shared pages.
+a note. \`![[lecture.pdf]]\` becomes an attachment link on a published site.
 
 ## tags & frontmatter
 
@@ -92,8 +92,10 @@ LIST FROM #reference
 Also: \`TABLE status, tags FROM "folder" SORT mtime DESC LIMIT 10\`
 and \`TASK FROM "folder"\` for open checkboxes.
 
-## presentations
+## publishing
 
-Add \`slides: true\` to a note's frontmatter and share its folder: the note
-becomes a slide deck on the shared site, one slide per \`---\` separator.
+Hit **publish** (Ctrl+Shift+S, or right-click a folder) to turn this folder
+into a website — write it to a local folder, push it to GitHub Pages, or save
+it as a PDF. Wikilinks and embeds resolve to the right pages. Publishing is a
+mod (see MOD_API.md), not a built-in.
 `;

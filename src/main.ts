@@ -10,7 +10,6 @@ import { Editor, type NoteRef } from "./editor";
 import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setUiFontSize } from "./theme";
 import { closeModal, confirmBox, infoBox, pick, type PickerItem, promptText } from "./modal";
 import { openSettings } from "./settings";
-import { openShareDialog } from "./share";
 import { bumpPdfZoom, closePdfDoc, initPdfView, isPdfFile, openPdfDoc, resetPdfZoom } from "./pdf";
 import {
   invalidateImage,
@@ -25,6 +24,9 @@ import { openCalendar } from "./calendar";
 import { initPreview, previewOn, refreshPreview, schedulePreview, setPreview } from "./preview";
 import { DEMO_FILE, DEMO_NOTE } from "./demo";
 import type { NoteMeta } from "./api";
+import type { ContextItemSpec, ContextScope, TextAPI } from "./mods/types";
+import { MODS } from "./mods/registry";
+import type { BlockRenderRuntime } from "./blockrender";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
   document.querySelector(sel) as T;
@@ -56,6 +58,8 @@ let editor: Editor;
 const isMain = getCurrentWindow().label === "main";
 
 const isMac = /Mac/i.test(navigator.platform);
+
+const APP_VERSION = "0.2.2";
 
 /** Editor state stashed when a text-file tab is backgrounded. */
 interface TabSnap {
@@ -565,12 +569,14 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
       add("new note inside", () => void newNote(entry.path));
       add("new folder inside", () => void newFolder(entry.path));
       add("generate table of contents", () => void generateToc(entry.path));
-      add("share…", () => openShareDialog(entry.path));
     } else {
       add("open in new tab", () => void newTab(entry.path));
       add("open in new window", () => {
         if (root) void api.openWindow(root, entry.path).catch(() => {});
       });
+      add("open in split pane", () => void openInSplit(entry.path));
+      add("move to…", () => void moveFileTo(entry.path));
+      add("find references", () => void showReferences(entry.path));
     }
     add("rename", () => void renameEntry(entry));
     add("copy", () => (copiedEntry = { path: entry.path, name: entry.name }));
@@ -585,10 +591,90 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
     add("new note", () => void newNote());
     add("new folder", () => void newFolder());
     add("generate table of contents", () => void generateToc(root!));
-    add("share this folder…", shareRoot);
     if (copiedEntry) add(`paste "${copiedEntry.name}"`, () => void pasteInto(root!));
   }
+  // mod-contributed items (see TextAPI.addContextMenuItem)
+  const scope: ContextScope | null = entry
+    ? entry.is_dir
+      ? "folder"
+      : "file"
+    : root
+      ? "root"
+      : null;
+  if (scope) {
+    const path = entry ? entry.path : root!;
+    for (const item of modContextItems) {
+      if (item.scope.includes(scope)) add(item.label, () => item.run({ scope, path }));
+    }
+  }
   openCtxMenu(e, items);
+}
+
+// ---------------------------------------------------------------- mods
+
+/** Registries the host-side TextAPI writes into; consumed by the context menu
+ * (above) and init (below). See src/mods/types.ts and MOD_API.md. */
+const modContextItems: ContextItemSpec[] = [];
+const modStartupHooks: (() => void)[] = [];
+
+/** Build the TextAPI a mod sees, backed by the app's own functions. */
+function buildTextApi(): TextAPI {
+  return {
+    appVersion: APP_VERSION,
+    currentRoot: () => root,
+    registerCommand: (cmd) => {
+      // a combo makes it keybindable + listed in shortcuts (rebindable under
+      // its id in config.toml [keys]); without one it's menu/button-only
+      if (cmd.combo) ACTIONS.push({ id: cmd.id, combo: cmd.combo, what: cmd.title, run: cmd.run });
+    },
+    addContextMenuItem: (item) => modContextItems.push(item),
+    registerBlockRenderer: (spec) =>
+      blockRenderRuntime.specs.set(spec.lang.toLowerCase(), spec),
+    addToolbarButton: (btn) => {
+      const foot = document.querySelector("#sidebar-foot");
+      if (!foot) return;
+      const el = document.createElement("button");
+      el.id = btn.id;
+      el.textContent = btn.label;
+      if (btn.title) el.title = btn.title;
+      el.addEventListener("click", btn.run);
+      foot.insertBefore(el, document.querySelector("#btn-config"));
+    },
+    onStartup: (fn) => modStartupHooks.push(fn),
+    fs: {
+      listTree: (r) => api.listTree(r),
+      readText: (path) => api.readFile(path).then((f) => f.content),
+      readBase64: (path) => api.readBase64(path),
+      writeText: (path, content) => api.writeTextFile(path, content),
+      copyFile: (src, dest) => api.copyFile(src, dest),
+      pickDirectory: (opts) =>
+        openDialog({ directory: true, title: opts?.title }).then((p) =>
+          typeof p === "string" ? p : null,
+        ),
+    },
+    render: { markdownToHtml: (text) => api.renderPreview(text) },
+    notes: { collect: () => collectNotesCached() },
+    openNote: (path, line) => openNote(path, line),
+    http: (...args: Parameters<typeof fetch>) => fetch(...args),
+    ui: {
+      info: (build) => infoBox(build),
+      confirm: (message, okLabel = "OK") => confirmBox(message, okLabel),
+      prompt: (label, initial) => promptText(label, initial),
+    },
+  };
+}
+
+/** Load build-time mods. Called early in init so any keybindable commands are
+ * in ACTIONS before rebindKeys() runs. */
+function loadMods() {
+  const app = buildTextApi();
+  for (const mod of MODS) {
+    try {
+      mod.activate(app);
+    } catch (err) {
+      console.error(`mod "${mod.id}" failed to activate:`, err);
+    }
+  }
 }
 
 /** Write "TOC.md" into `dir`, a nested list of wikilinks to everything
@@ -1109,7 +1195,7 @@ function ensureEditor2(): Editor {
     importImageBlob,
     onNavBack: () => {},
     onNavForward: () => {},
-    dataview: dataviewHost,
+    blockRender: blockRenderRuntime,
   });
   editor2.setVim(config.vim_mode);
   editor2.setLineNumbers(config.line_numbers);
@@ -1166,6 +1252,55 @@ async function openInPane2(path: string) {
   } catch (err) {
     showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
+}
+
+/** Open `path` in the split pane, creating the split if it's off. */
+async function openInSplit(path: string) {
+  if (split === "off") await setSplit("v");
+  setFocusedPane(2);
+  await openInPane2(path);
+}
+
+/** Move `path` into a chosen subfolder of the open root (or back to the root),
+ * keeping any open tab/editor pointed at it. */
+async function moveFileTo(path: string) {
+  if (!root) return;
+  const dirs: string[] = [];
+  const walk = (entries: api.Entry[]) => {
+    for (const e of entries) {
+      if (e.is_dir) {
+        dirs.push(e.path);
+        if (e.children) walk(e.children);
+      }
+    }
+  };
+  walk(tree);
+  const name = path.split("/").pop()!;
+  const here = parentOf(path);
+  const items: PickerItem[] = [
+    { label: "(folder root)", detail: root, value: root },
+    ...dirs.map((d) => ({ label: rel(d), detail: d, value: d })),
+  ].filter((it) => it.value !== here); // no-op moves hidden
+  if (items.length === 0) {
+    return showIssue("no other folder to move into", [{ label: "ok", run: hideIssue }]);
+  }
+  const chosen = await pick(items, { placeholder: `move "${name}" to…` });
+  if (!chosen) return;
+  const to = `${chosen.value}/${name}`;
+  try {
+    await api.renamePath(path, to);
+  } catch (err) {
+    return showIssue(`move failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  }
+  if (currentPath === path) {
+    currentPath = to;
+    rememberFile(to);
+  }
+  if (pane2Path === path) pane2Path = to;
+  remapTabs(path, to);
+  await refreshTree();
+  setCurrentRow(currentPath);
+  updateStatus();
 }
 
 async function savePane2(): Promise<boolean> {
@@ -1252,7 +1387,21 @@ async function pane2FsChanged() {
 
 /** Only the main window owns the cross-launch "last file" fallback. */
 function rememberFile(path: string) {
-  if (isMain) localStorage.setItem("text.lastFile", path);
+  if (!isMain) return;
+  localStorage.setItem("text.lastFile", path);
+  localStorage.setItem("text.recentFiles", JSON.stringify(pushRecent(path)));
+}
+
+/** Most-recent-first list of recently opened files (for the quick switcher). */
+function recentFiles(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem("text.recentFiles") ?? "[]");
+  } catch {
+    return [];
+  }
+}
+function pushRecent(path: string): string[] {
+  return [path, ...recentFiles().filter((p) => p !== path)].slice(0, 20);
 }
 
 async function openFile(path: string) {
@@ -1281,6 +1430,7 @@ async function openFile(path: string) {
   if (isViewableImage(path)) return openImage(path);
   if (isAudioFile(path)) return openAudio(path);
   if (isPdfFile(path)) return openPdf(path);
+  refsTarget = null; // opening a note returns the links pane to its backlinks
   if (currentPath && dirty) await save();
   hideIssue();
   try {
@@ -1782,10 +1932,16 @@ async function deleteEntry(entry: api.Entry) {
 
 async function quickSwitch() {
   if (!root) return;
+  const byPath = new Map(allFiles.map((f) => [f.path, f] as const));
+  // empty query shows recent files; typing matches the whole folder
+  const recents = recentFiles()
+    .filter((p) => p !== currentPath && byPath.has(p))
+    .map((p) => ({ label: byPath.get(p)!.rel, value: p }));
   const chosen = await pick(
     allFiles.map((f) => ({ label: f.rel, value: f.path })),
     {
       placeholder: "open note…",
+      emptyItems: recents,
       freeTextHint: "new note",
       onFreeText: (text) => void createAndOpen(text),
     },
@@ -1981,8 +2137,18 @@ async function runSearch() {
   renderHits($("#search-results"), hits, "no matches");
 }
 
+/** When set, the links pane shows references to this file (incl. non-note
+ * media like pdfs/video) instead of the open note's backlinks. */
+let refsTarget: string | null = null;
+
 async function refreshBacklinks() {
   if (!$("#pane-links").classList.contains("active")) return;
+  if (refsTarget) {
+    $("#backlinks-title").textContent = `references to ${refsTarget}`;
+    const hits = root ? await api.findBacklinks(root, refsTarget) : [];
+    renderHits($("#backlinks-results"), hits, "nothing references this file");
+    return;
+  }
   if (!root || !currentPath || !isNote(currentPath)) {
     $("#backlinks-title").textContent = "no note open";
     $("#backlinks-results").replaceChildren();
@@ -1993,6 +2159,16 @@ async function refreshBacklinks() {
   const hits = await api.findBacklinks(root, name);
   renderHits($("#backlinks-results"), hits.filter((h) => h.path !== currentPath),
     "nothing links here yet");
+}
+
+/** Show, in the links pane, every note that embeds or links to `path` by name
+ * — useful for media (pdf/video/etc.) you can't open to see its backlinks. */
+function showReferences(path: string) {
+  const base = path.split("/").pop() ?? path;
+  // notes are linked by stem ([[note]]); media is embedded with its
+  // extension (![[lecture.pdf]])
+  refsTarget = isNote(base) ? stem(base) : base;
+  showPane("links");
 }
 
 // ---------------------------------------------------------------- daily / theme / config
@@ -2158,46 +2334,44 @@ async function toggleZen() {
   editor.focus();
 }
 
-// ---------------------------------------------------------------- sharing
+// ------------------------------------------------- block renderers (mod-driven)
 
-/** Share the whole notes folder; individual folders share via the tree's
- * right-click menu. */
-function shareRoot() {
-  if (root) openShareDialog(root);
-}
-
-// ---------------------------------------------------------------- dataview
-
-/** Cached note metadata for dataview blocks; refetched after fs changes. */
+/** Cached note metadata for block renderers (e.g. dataview); refetched after
+ * fs changes. */
 let notesMeta: Promise<NoteMeta[]> | null = null;
-const dataviewSubs = new Set<() => void>();
-let dataviewTimer: number | undefined;
+const blockInvalidateSubs = new Set<() => void>();
+let blockInvalidateTimer: number | undefined;
 
 function invalidateNotesMeta() {
   notesMeta = null;
   // fs events arrive in bursts (autosave) — tell the widgets once it settles
-  window.clearTimeout(dataviewTimer);
-  dataviewTimer = window.setTimeout(() => {
-    for (const cb of dataviewSubs) cb();
+  window.clearTimeout(blockInvalidateTimer);
+  blockInvalidateTimer = window.setTimeout(() => {
+    for (const cb of blockInvalidateSubs) cb();
   }, 500);
 }
 
-const dataviewHost = {
-  data: () => {
-    if (!root) return Promise.resolve([]);
-    if (!notesMeta) notesMeta = api.collectNotes(root).catch(() => []);
-    return notesMeta;
-  },
-  onInvalidate: (cb: () => void) => {
-    dataviewSubs.add(cb);
-    return () => void dataviewSubs.delete(cb);
-  },
-  openNote: (path: string, line?: number) => {
-    void openFile(path).then(() => {
-      if (line && currentPath === path) editor.jumpToLine(line);
-    });
+const collectNotesCached = (): Promise<NoteMeta[]> => {
+  if (!root) return Promise.resolve([]);
+  if (!notesMeta) notesMeta = api.collectNotes(root).catch(() => []);
+  return notesMeta;
+};
+
+/** Runtime the editor's block-render extension reads; mods add renderers
+ * through TextAPI.registerBlockRenderer. */
+const blockRenderRuntime: BlockRenderRuntime = {
+  specs: new Map(),
+  onInvalidate: (cb) => {
+    blockInvalidateSubs.add(cb);
+    return () => void blockInvalidateSubs.delete(cb);
   },
 };
+
+function openNote(path: string, line?: number) {
+  void openFile(path).then(() => {
+    if (line && currentPath === path) editor.jumpToLine(line);
+  });
+}
 
 // ---------------------------------------------------------------- preview
 
@@ -2362,6 +2536,11 @@ async function openRoot(path: string) {
 }
 
 async function openFirstFile() {
+  // prefer a note sitting at the folder root over one buried in a subdirectory
+  const rootNote = notes.find((n) => !rel(n.path).includes("/"));
+  if (rootNote) return void openFile(rootNote.path);
+  const rootFile = allFiles.find((f) => !f.rel.includes("/"));
+  if (rootFile) return void openFile(rootFile.path);
   if (notes.length) await openFile(notes[0].path);
   else if (allFiles.length) await openFile(allFiles[0].path);
 }
@@ -2448,13 +2627,12 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "quick_switch", combo: "ctrl+p", what: "quick switch / new note", run: () => void quickSwitch() },
   { id: "new_note", combo: "ctrl+n", what: "new note", run: () => void newNote() },
   { id: "daily_note", combo: "ctrl+shift+d", what: "today's daily note", run: () => void openDaily() },
-  { id: "open_folder", combo: "ctrl+o", what: "open folder…", run: () => void chooseFolder() },
+  { id: "open_folder", combo: "ctrl+o", what: "open / switch folder…", run: () => void switchFolder() },
   { id: "switch_folder", combo: "ctrl+shift+o", what: "switch between recent folders", run: () => void switchFolder() },
   { id: "search", combo: "ctrl+shift+f", what: "search everywhere", run: () => showPane("search") },
   { id: "backlinks", combo: "ctrl+shift+b", what: "backlinks", run: () => showPane("links") },
   { id: "theme", combo: "ctrl+shift+t", what: "switch theme", run: () => void pickTheme() },
   { id: "editor_font", combo: "ctrl+shift+e", what: "editor font", run: () => void pickEditorFont() },
-  { id: "share", combo: "ctrl+shift+s", what: "share folder as a website", run: shareRoot },
   { id: "config", combo: "ctrl+,", what: "settings", run: () => openSettingsPanel() },
   { id: "shortcuts", combo: "ctrl+/", what: "this list", run: () => showShortcuts() },
   { id: "toggle_sidebar", combo: "ctrl+\\", what: "toggle sidebar", run: () => toggleSidebar() },
@@ -2520,6 +2698,7 @@ const SHORTCUTS: [string, [string, string][]][] = [
       ["Ctrl+K", "insert markdown link"],
       ["` with text selected", "wrap as inline code"],
       ["Ctrl+1 … Ctrl+6", "heading level 1–6 (repeat to clear)"],
+      ["Ctrl+Shift+Enter", "open a blank line above"],
       ["Ctrl+F", "find in note"],
       ["click a [ ]", "toggle checkbox"],
       ["Tab / Shift+Tab", "table: next / previous cell (auto-formats)"],
@@ -2694,7 +2873,7 @@ async function init() {
     importImageBlob,
     onNavBack: goBack,
     onNavForward: goForward,
-    dataview: dataviewHost,
+    blockRender: blockRenderRuntime,
   });
 
   initPreview(
@@ -2712,6 +2891,10 @@ async function init() {
     },
     () => setPreview(false),
   );
+
+  // load mods before applyConfigFromDisk → rebindKeys, so their keybindable
+  // commands are in ACTIONS in time
+  loadMods();
 
   await applyConfigFromDisk();
 
@@ -2841,7 +3024,6 @@ async function init() {
   $("#pane2").addEventListener("focusin", () => setFocusedPane(2));
   $("#btn-daily").addEventListener("click", () => void openDaily());
   $("#btn-calendar").addEventListener("click", openDailyCalendar);
-  $("#btn-share").addEventListener("click", shareRoot);
   $("#btn-config").addEventListener("click", () => openSettingsPanel());
   $("#btn-config").addEventListener("contextmenu", (e) => {
     e.preventDefault();
@@ -2901,9 +3083,14 @@ async function init() {
     }
   }
 
-  // expired share links get taken down in the background; failures (offline,
-  // gh signed out) are silent and retried next launch
-  if (isMain) void api.cleanupShares().catch(() => {});
+  // app is ready (root opened) — let mods run their startup work
+  for (const fn of modStartupHooks) {
+    try {
+      fn();
+    } catch (err) {
+      console.error("mod startup hook failed:", err);
+    }
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => void init());
