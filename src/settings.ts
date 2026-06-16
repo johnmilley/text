@@ -17,6 +17,8 @@ export interface SettingsHost {
   applyVim(): void;
   /** line numbers + current-line highlight */
   applyEditorView(): void;
+  /** move the sidebar to the configured edge */
+  applySidebarSide(): void;
   /** open the bundled markdown reference note */
   openDemo(): void;
   /** closes settings (pickers replace the modal) */
@@ -149,6 +151,14 @@ export function openSettings(host: SettingsHost) {
         () => host.config.highlight_line,
         (v) => (host.config.highlight_line = v),
         host.applyEditorView,
+      ),
+    );
+    row(
+      "sidebar on the right",
+      checkbox(
+        () => host.config.sidebar_right,
+        (v) => (host.config.sidebar_right = v),
+        host.applySidebarSide,
       ),
     );
 

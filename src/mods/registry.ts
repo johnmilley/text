@@ -8,5 +8,7 @@
 import type { Mod } from "./types";
 import { ssgMod } from "./ssg";
 import { dataviewMod } from "./dataview";
+import { tocMod } from "./toc";
+import { dailyMod } from "./daily";
 
-export const MODS: Mod[] = [ssgMod, dataviewMod];
+export const MODS: Mod[] = [ssgMod, dataviewMod, tocMod, dailyMod];

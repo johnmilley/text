@@ -1,0 +1,9 @@
+/* Emotion Side B Dark — hot pink on the active file row against blue chrome. */
+.tree-row.current {
+  background: color-mix(in srgb, #ff5fa0 18%, transparent);
+  color: #ff7fb4;
+  box-shadow: inset 3px 0 0 #ff5fa0;
+}
+.tree-row.current .tree-icon {
+  opacity: 0.9;
+}

@@ -41,6 +41,8 @@ const BUNDLED: &[(&str, &str)] = &[
     ("nord-light", include_str!("../themes/nord-light.toml")),
     ("tokyo-day", include_str!("../themes/tokyo-day.toml")),
     ("one-light", include_str!("../themes/one-light.toml")),
+    ("emotion-side-b", include_str!("../themes/emotion-side-b.toml")),
+    ("emotion-side-b-dark", include_str!("../themes/emotion-side-b-dark.toml")),
 ];
 
 pub fn config_dir() -> Result<PathBuf, String> {

@@ -1,4 +1,4 @@
-import { infoBox } from "./modal";
+import type { TextAPI } from "../types";
 
 /**
  * Calendar for daily notes (ala Obsidian's Calendar plugin): a month grid
@@ -22,12 +22,12 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-export function openCalendar(host: CalendarHost) {
+export function openCalendar(app: TextAPI, host: CalendarHost) {
   const today = new Date();
   let year = today.getFullYear();
   let month = today.getMonth();
 
-  infoBox((box) => {
+  app.ui.info((box) => {
     box.classList.add("calendar-box");
 
     const head = document.createElement("div");

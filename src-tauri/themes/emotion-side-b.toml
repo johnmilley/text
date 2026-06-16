@@ -1,0 +1,28 @@
+# text — Emotion Side B: crisp white page, the album's bright blue and hot
+# pink saved for the chrome. Blue rides the tabs/buttons/links/caret; pink
+# marks the active file and your selection (see the sibling .css for placement).
+# See text-dark.toml for the token reference.
+
+name = "Emotion Side B"
+dark = false
+
+[colors]
+bg = "#ffffff"
+bg-panel = "#f7f8fc"
+bg-hover = "#eef1f8"
+fg = "#16181d"
+fg-muted = "#8a8f9b"
+accent = "#2b8fff"
+heading = "#14161b"
+link = "#2b8fff"
+tag = "#ff4f9a"
+quote = "#8a8f9b"
+code = "#c2266e"
+code-bg = "#fdeef5"
+border = "#e6e8f0"
+cursor = "#2b8fff"
+selection = "#ffd6e6"
+
+[fonts]
+editor = "ui-monospace, 'JetBrains Mono', 'Fira Code', 'DejaVu Sans Mono', monospace"
+ui = "system-ui, sans-serif"

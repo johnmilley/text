@@ -1,0 +1,10 @@
+/* Emotion Side B — put the hot pink on the active file row so it reads
+   against the blue tabs/buttons. Tokens carry the blue; this carries the pink. */
+.tree-row.current {
+  background: color-mix(in srgb, #ff4f9a 14%, transparent);
+  color: #e23e86;
+  box-shadow: inset 3px 0 0 #ff4f9a;
+}
+.tree-row.current .tree-icon {
+  opacity: 0.9;
+}

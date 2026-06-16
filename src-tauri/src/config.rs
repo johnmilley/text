@@ -31,6 +31,7 @@ const HEADER: &str = r#"# text — config
 #                 (notes are created as daily_dir/YYYY/MM/YYYY-MM-DD.md)
 #   image_dir     where dropped/pasted images land, relative to the root
 #                 ("" = the root itself)
+#   sidebar_right put the sidebar on the right edge instead of the left
 #
 # [keys] rebinds the app shortcuts. Format: modifiers + key, e.g.
 # "ctrl+shift+f", "ctrl+,", "alt+d". Modifiers: ctrl, shift, alt.
@@ -67,6 +68,8 @@ pub struct Config {
     /// ("" = the root itself)
     pub image_dir: String,
     pub sidebar_width: u16,
+    /// put the sidebar on the right edge instead of the left
+    pub sidebar_right: bool,
     /// app-level shortcut overrides: action -> "ctrl+shift+x" style combo
     pub keys: BTreeMap<String, String>,
 }
@@ -128,6 +131,7 @@ impl Default for Config {
             daily_dir: "daily".into(),
             image_dir: "".into(),
             sidebar_width: 240,
+            sidebar_right: false,
             keys: default_keys(),
         }
     }

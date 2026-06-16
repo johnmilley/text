@@ -1,5 +1,10 @@
 /* text — UI chrome. All colors come from theme tokens set on :root. */
 
+:root {
+  /* thin folder outline, masked so it picks up the surrounding text color */
+  --folder-glyph: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.3' stroke-linejoin='round'><path d='M1.6 4.2h4l1.5 2h7.3v7.1H1.6z'/></svg>");
+}
+
 * {
   box-sizing: border-box;
 }
@@ -127,6 +132,18 @@ button:hover {
   background: var(--accent);
   opacity: 0.4;
 }
+/* sidebar on the right: mirror the row, the divider, and the resizer overlap */
+#app.sidebar-right {
+  flex-direction: row-reverse;
+}
+#app.sidebar-right #sidebar {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+#app.sidebar-right #resizer {
+  margin-left: 0;
+  margin-right: -4px;
+}
 
 #sidebar-tabs {
   display: flex;
@@ -174,18 +191,22 @@ button:hover {
   font-weight: 600;
   transition: background 0.12s, color 0.12s;
 }
-/* a small caret marks it as a switcher you can click open */
-#folder-name::after {
-  content: "▾";
+/* a folder glyph (theme-colored via mask) marks the open folder / switcher */
+#folder-name::before {
+  content: "";
   flex: none;
-  font-size: 0.85em;
-  opacity: 0.55;
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: var(--folder-glyph) center / contain no-repeat;
+  mask: var(--folder-glyph) center / contain no-repeat;
+  opacity: 0.7;
 }
 #folder-name:hover {
   color: var(--fg);
   background: var(--bg-hover);
 }
-#folder-name:hover::after {
+#folder-name:hover::before {
   opacity: 1;
 }
 .row-actions {
@@ -435,36 +456,13 @@ button:hover {
 #preview-name {
   flex: 1;
 }
-#preview-tools {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-}
-#preview-tools button {
-  min-width: 20px;
-  padding: 0 4px;
-}
-#preview-zoom {
-  min-width: 38px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-#preview-theme {
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  font: inherit;
-  padding: 1px 3px;
-}
 #preview-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 24px 28px 50vh;
   font-family: var(--font-editor);
-  font-size: calc(var(--editor-font-size, 15px) * var(--pv-zoom, 1));
+  font-size: var(--editor-font-size, 15px);
   line-height: 1.65;
 }
 #preview-body h1, #preview-body h2, #preview-body h3 {
@@ -537,133 +535,6 @@ button:hover {
 .preview-missing {
   color: var(--fg-muted);
   font-style: italic;
-}
-
-/* preview themes — a clean reading page independent of the app theme, for
-   reviewing notes as they'd read in a textbook/handout. Each centres a column
-   and sets its own colours so it looks the same in any app theme. */
-#preview-body.pv-textbook > *,
-#preview-body.pv-classroom > *,
-#preview-body.pv-sepia > * {
-  max-width: 46rem;
-  margin-left: auto;
-  margin-right: auto;
-}
-#preview-body.pv-textbook {
-  background: #fcfcf9;
-  color: #1f2328;
-  font-family: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
-  line-height: 1.7;
-}
-#preview-body.pv-textbook h1,
-#preview-body.pv-textbook h2,
-#preview-body.pv-textbook h3 {
-  color: #0b3d2e;
-}
-#preview-body.pv-textbook h2 {
-  border-bottom-color: #ddd6c7;
-}
-#preview-body.pv-textbook a {
-  color: #1a5fb4;
-}
-#preview-body.pv-textbook blockquote {
-  border-left-color: #c9b88a;
-  color: #5a5247;
-}
-#preview-body.pv-textbook code {
-  background: #efece3;
-  color: #7a3b2e;
-}
-#preview-body.pv-textbook pre {
-  background: #f4f1e8;
-  border-color: #e0dac9;
-}
-#preview-body.pv-textbook th {
-  background: #f0ece0;
-}
-#preview-body.pv-textbook th,
-#preview-body.pv-textbook td,
-#preview-body.pv-textbook hr {
-  border-color: #e0dac9;
-}
-
-#preview-body.pv-classroom {
-  background: #ffffff;
-  color: #232323;
-  font-family: "Inter Variable", system-ui, sans-serif;
-  line-height: 1.8;
-}
-#preview-body.pv-classroom h1 {
-  color: #14305c;
-}
-#preview-body.pv-classroom h2 {
-  color: #1a4789;
-  border-bottom-color: #e3e8f0;
-}
-#preview-body.pv-classroom h3 {
-  color: #2a5db0;
-}
-#preview-body.pv-classroom a {
-  color: #1a5fb4;
-}
-#preview-body.pv-classroom blockquote {
-  border-left-color: #6f9ce8;
-  background: #f4f8ff;
-  color: #3a4a63;
-}
-#preview-body.pv-classroom code {
-  background: #eef2f8;
-  color: #b4332a;
-}
-#preview-body.pv-classroom pre {
-  background: #f6f8fb;
-  border-color: #e3e8f0;
-}
-#preview-body.pv-classroom th {
-  background: #eef2f8;
-}
-#preview-body.pv-classroom th,
-#preview-body.pv-classroom td,
-#preview-body.pv-classroom hr {
-  border-color: #e3e8f0;
-}
-
-#preview-body.pv-sepia {
-  background: #f4ecd8;
-  color: #433422;
-  font-family: "Literata Variable", Georgia, serif;
-  line-height: 1.75;
-}
-#preview-body.pv-sepia h1,
-#preview-body.pv-sepia h2,
-#preview-body.pv-sepia h3 {
-  color: #5b3a1a;
-}
-#preview-body.pv-sepia h2 {
-  border-bottom-color: #ddcca8;
-}
-#preview-body.pv-sepia a {
-  color: #9a5b1e;
-}
-#preview-body.pv-sepia blockquote {
-  border-left-color: #c2a366;
-  color: #6a5436;
-}
-#preview-body.pv-sepia code {
-  background: #e8dcbf;
-  color: #7a3b1e;
-}
-#preview-body.pv-sepia pre {
-  background: #ece1c6;
-  border-color: #ddcca8;
-}
-#preview-body.pv-sepia th {
-  background: #e8dcbf;
-}
-#preview-body.pv-sepia th,
-#preview-body.pv-sepia td,
-#preview-body.pv-sepia hr {
-  border-color: #ddcca8;
 }
 
 /* ------------------------------------------------------------- tab bar */

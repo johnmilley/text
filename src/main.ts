@@ -20,13 +20,12 @@ import {
   loadImage,
 } from "./images";
 import { comboCandidates } from "./keys";
-import { openCalendar } from "./calendar";
 import { initPreview, previewOn, refreshPreview, schedulePreview, setPreview } from "./preview";
 import { DEMO_FILE, DEMO_NOTE } from "./demo";
 import type { NoteMeta } from "./api";
 import type { ContextItemSpec, ContextScope, TextAPI } from "./mods/types";
 import { MODS } from "./mods/registry";
-import type { BlockRenderRuntime } from "./blockrender";
+import type { BlockRenderContext, BlockRenderRuntime } from "./blockrender";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
   document.querySelector(sel) as T;
@@ -568,7 +567,6 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
     if (entry.is_dir) {
       add("new note inside", () => void newNote(entry.path));
       add("new folder inside", () => void newFolder(entry.path));
-      add("generate table of contents", () => void generateToc(entry.path));
     } else {
       add("open in new tab", () => void newTab(entry.path));
       add("open in new window", () => {
@@ -590,7 +588,6 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
   } else if (root) {
     add("new note", () => void newNote());
     add("new folder", () => void newFolder());
-    add("generate table of contents", () => void generateToc(root!));
     if (copiedEntry) add(`paste "${copiedEntry.name}"`, () => void pasteInto(root!));
   }
   // mod-contributed items (see TextAPI.addContextMenuItem)
@@ -622,6 +619,7 @@ function buildTextApi(): TextAPI {
   return {
     appVersion: APP_VERSION,
     currentRoot: () => root,
+    config: () => config,
     registerCommand: (cmd) => {
       // a combo makes it keybindable + listed in shortcuts (rebindable under
       // its id in config.toml [keys]); without one it's menu/button-only
@@ -647,6 +645,8 @@ function buildTextApi(): TextAPI {
       readBase64: (path) => api.readBase64(path),
       writeText: (path, content) => api.writeTextFile(path, content),
       copyFile: (src, dest) => api.copyFile(src, dest),
+      createDir: (path) => api.createDir(path),
+      createFile: (path) => api.createFile(path),
       pickDirectory: (opts) =>
         openDialog({ directory: true, title: opts?.title }).then((p) =>
           typeof p === "string" ? p : null,
@@ -660,6 +660,7 @@ function buildTextApi(): TextAPI {
       info: (build) => infoBox(build),
       confirm: (message, okLabel = "OK") => confirmBox(message, okLabel),
       prompt: (label, initial) => promptText(label, initial),
+      close: () => closeModal(),
     },
   };
 }
@@ -674,36 +675,6 @@ function loadMods() {
     } catch (err) {
       console.error(`mod "${mod.id}" failed to activate:`, err);
     }
-  }
-}
-
-/** Write "TOC.md" into `dir`, a nested list of wikilinks to everything
- * inside, and open it. Re-running refreshes the listing. */
-async function generateToc(dir: string) {
-  if (!root) return;
-  const entries = dir === root ? tree : (entryByPath.get(dir)?.children ?? []);
-  const title = dir.split("/").pop() ?? "notes";
-  const lines: string[] = [`# ${title} — contents`, ""];
-  const walk = (items: api.Entry[], depth: number) => {
-    for (const item of items) {
-      const indent = "  ".repeat(depth);
-      if (item.is_dir) {
-        lines.push(`${indent}- **${item.name}**`);
-        if (item.children) walk(item.children, depth + 1);
-      } else if (depth > 0 || item.name !== "TOC.md") {
-        lines.push(`${indent}- [[${isNote(item.name) ? stem(item.name) : item.name}]]`);
-      }
-    }
-  };
-  walk(entries, 0);
-  const path = `${dir}/TOC.md`;
-  try {
-    await api.createFile(path).catch(() => {}); // may already exist
-    await api.writeFile(path, lines.join("\n") + "\n", null);
-    await refreshTree();
-    await openFile(path);
-  } catch (err) {
-    showIssue(`TOC failed: ${err}`, [{ label: "ok", run: hideIssue }]);
   }
 }
 
@@ -1899,6 +1870,13 @@ async function newFolder(dir?: string) {
   await refreshTree();
 }
 
+/** Rename whatever's selected: the highlighted tree row, else the open file. */
+function renameSelected() {
+  const path = treeSel ?? currentPath;
+  const entry = path ? entryByPath.get(path) : undefined;
+  if (entry) void renameEntry(entry);
+}
+
 async function renameEntry(entry: api.Entry) {
   const name = await promptText("rename to", entry.name);
   if (!name || name === entry.name) return;
@@ -2171,45 +2149,7 @@ function showReferences(path: string) {
   showPane("links");
 }
 
-// ---------------------------------------------------------------- daily / theme / config
-
-/** Open (creating if needed) the daily note for a YYYY-MM-DD date. */
-async function openDailyFor(date: string) {
-  if (!root) return;
-  // daily/YYYY/MM/YYYY-MM-DD.md (the tree shows latest year/month first)
-  const dir = `${root}/${config.daily_dir}/${date.slice(0, 4)}/${date.slice(5, 7)}`;
-  const path = `${dir}/${date}.md`;
-  try {
-    await api.createDir(dir);
-    await api.createFile(path);
-  } catch {
-    // exists — fine
-  }
-  await refreshTree();
-  await openFile(path);
-  if (!editor.text) {
-    editor.replaceContent(`# ${date}\n\n`);
-    editor.jumpToLine(3);
-  }
-}
-
-const openDaily = () => openDailyFor(today());
-
-/** Month-grid calendar over the daily notes (Ctrl+Shift+C / the sidebar). */
-function openDailyCalendar() {
-  if (!root) return;
-  const dailyRel = config.daily_dir.replace(/^\/+|\/+$/g, "");
-  openCalendar({
-    hasNote: (date) =>
-      allFiles.some(
-        (f) => f.rel === `${dailyRel}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`,
-      ),
-    open: (date) => {
-      closeModal();
-      void openDailyFor(date);
-    },
-  });
-}
+// ---------------------------------------------------------------- theme / config
 
 async function pickTheme() {
   themes = await api.listThemes();
@@ -2373,6 +2313,32 @@ function openNote(path: string, line?: number) {
   });
 }
 
+/** Render mod block widgets (dataview, …) into the preview pane in place of
+ * their fenced-code blocks — the same renderers the editor uses. Returns a
+ * disposer the preview runs before its next render to tear the widgets down. */
+function renderPreviewBlocks(root: HTMLElement): () => void {
+  const cleanups: Array<() => void> = [];
+  for (const code of root.querySelectorAll<HTMLElement>("pre > code[class*='language-']")) {
+    const lang = /language-([\w-]+)/.exec(code.className)?.[1]?.toLowerCase();
+    const spec = lang ? blockRenderRuntime.specs.get(lang) : undefined;
+    if (!spec) continue;
+    const box = document.createElement("div");
+    box.className = "block-widget";
+    const ctx: BlockRenderContext = {
+      el: box,
+      source: code.textContent ?? "",
+      onInvalidate: blockRenderRuntime.onInvalidate,
+      requestMeasure: () => {},
+    };
+    const cleanup = spec.render(ctx);
+    if (cleanup) cleanups.push(cleanup);
+    code.parentElement!.replaceWith(box);
+  }
+  return () => {
+    for (const c of cleanups) c();
+  };
+}
+
 // ---------------------------------------------------------------- preview
 
 /** Open a relative link target ("dir/note.md") clicked in the preview. */
@@ -2453,6 +2419,7 @@ async function applyConfigFromDisk() {
   editor2?.setVim(config.vim_mode);
   applyEditorView();
   $("#sidebar").style.width = `${config.sidebar_width}px`;
+  applySidebarSide();
   themes = await api.listThemes();
   const theme = themes.find((t) => t.id === config.theme) ?? themes[0];
   if (theme) applyTheme(theme);
@@ -2462,6 +2429,11 @@ async function openConfig() {
   closeModal(); // settings panel stays open otherwise, hiding the editor
   await api.saveConfig(config); // make sure the file exists with current values
   await openFile(configFilePath);
+}
+
+/** Move the sidebar to the configured edge (left by default, right if set). */
+function applySidebarSide() {
+  $("#app").classList.toggle("sidebar-right", config.sidebar_right);
 }
 
 /** Line numbers + current-line highlight, applied to both editors. */
@@ -2487,6 +2459,7 @@ function openSettingsPanel() {
       editor2?.setVim(config.vim_mode);
     },
     applyEditorView,
+    applySidebarSide,
     openDemo: () => void openDemoNote(),
     pickTheme: () => void pickTheme(),
     pickFont: () => void pickEditorFont(),
@@ -2626,7 +2599,7 @@ async function switchFolder() {
 const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = [
   { id: "quick_switch", combo: "ctrl+p", what: "quick switch / new note", run: () => void quickSwitch() },
   { id: "new_note", combo: "ctrl+n", what: "new note", run: () => void newNote() },
-  { id: "daily_note", combo: "ctrl+shift+d", what: "today's daily note", run: () => void openDaily() },
+  { id: "new_folder", combo: "ctrl+shift+n", what: "new folder", run: () => void newFolder() },
   { id: "open_folder", combo: "ctrl+o", what: "open / switch folder…", run: () => void switchFolder() },
   { id: "switch_folder", combo: "ctrl+shift+o", what: "switch between recent folders", run: () => void switchFolder() },
   { id: "search", combo: "ctrl+shift+f", what: "search everywhere", run: () => showPane("search") },
@@ -2640,11 +2613,10 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "close_tab", combo: "ctrl+w", what: "close tab", run: () => void closeTab(active) },
   { id: "next_tab", combo: "ctrl+tab", what: "next tab", run: () => void switchTab((active + 1) % tabs.length) },
   { id: "prev_tab", combo: "ctrl+shift+tab", what: "previous tab", run: () => void switchTab((active + tabs.length - 1) % tabs.length) },
-  { id: "new_window", combo: "ctrl+shift+n", what: "new window", run: newWindow },
+  { id: "new_window", combo: "ctrl+alt+n", what: "new window", run: newWindow },
   { id: "split", combo: "ctrl+shift+\\", what: "split editor (vertical → horizontal → off)", run: () => void cycleSplit() },
   { id: "preview", combo: "ctrl+shift+m", what: "markdown preview (rendered, beside the editor)", run: togglePreview },
   { id: "focus_tree", combo: "ctrl+e", what: "focus file tree (arrows move, enter opens, esc returns)", run: focusTree },
-  { id: "calendar", combo: "ctrl+shift+c", what: "daily-note calendar", run: openDailyCalendar },
   { id: "zen", combo: "alt+z", what: "zen mode (fullscreen, typewriter) — also F11", run: () => void toggleZen() },
 ];
 
@@ -2763,6 +2735,15 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault();
     return void toggleZen();
   }
+  // F2 renames the selected tree row (or the open file). Skip when a modal
+  // input/select has focus; the editor is a contenteditable div, so rename
+  // still works while editing.
+  if (e.key === "F2" && !mod && !e.altKey) {
+    const tag = (document.activeElement as HTMLElement | null)?.tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    e.preventDefault();
+    return renameSelected();
+  }
   // Alt+arrows: back/forward. The editor keymap handles these itself when
   // focused (defaultPrevented) — this catches them everywhere else. On
   // macOS Option+arrows stay word motion; nav is Cmd+[ / Cmd+] there.
@@ -2835,7 +2816,9 @@ function initResizer() {
   resizer.addEventListener("mousedown", (e) => {
     e.preventDefault();
     const move = (ev: MouseEvent) => {
-      const w = Math.min(Math.max(ev.clientX, 160), 480);
+      // on the right, the sidebar grows as the cursor moves toward the edge
+      const x = config.sidebar_right ? window.innerWidth - ev.clientX : ev.clientX;
+      const w = Math.min(Math.max(x, 160), 480);
       sidebar.style.width = `${w}px`;
     };
     const up = () => {
@@ -2888,6 +2871,7 @@ async function init() {
       openWikilink,
       openRelPath: openRelTarget,
       openExternal: (url) => void openUrl(url),
+      renderBlocks: renderPreviewBlocks,
     },
     () => setPreview(false),
   );
@@ -3022,8 +3006,6 @@ async function init() {
   $("#pane2").addEventListener("mousedown", () => setFocusedPane(2), true);
   $("#pane1").addEventListener("focusin", () => setFocusedPane(1));
   $("#pane2").addEventListener("focusin", () => setFocusedPane(2));
-  $("#btn-daily").addEventListener("click", () => void openDaily());
-  $("#btn-calendar").addEventListener("click", openDailyCalendar);
   $("#btn-config").addEventListener("click", () => openSettingsPanel());
   $("#btn-config").addEventListener("contextmenu", (e) => {
     e.preventDefault();

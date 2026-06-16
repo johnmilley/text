@@ -50,6 +50,7 @@ export interface Config {
   daily_dir: string;
   image_dir: string;
   sidebar_width: number;
+  sidebar_right: boolean;
   keys: Record<string, string>;
 }
 

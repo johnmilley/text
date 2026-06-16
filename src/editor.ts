@@ -414,6 +414,7 @@ export class Editor {
   /** Open a document: fresh state (own undo history), language by filename. */
   openDoc(content: string, filename: string) {
     this.view.setState(this.makeState(content, filename));
+    this.view.scrollDOM.scrollTop = 0; // always open at the top of the file
     void this.applyLanguage(filename);
   }
 

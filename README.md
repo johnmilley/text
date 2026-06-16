@@ -272,6 +272,8 @@ src/                frontend (vanilla TS, no framework)
     registry.ts     build-time list of loaded mods
     ssg/            reference mod: publish a folder as a website (local/Pages/PDF)
     dataview/       reference mod: live ```dataview query blocks
+    toc/            reference mod: generate a TOC.md for a folder
+    daily/          reference mod: daily notes + month calendar
 ```
 
 Everything is themed through CSS variables; the editor and UI share one

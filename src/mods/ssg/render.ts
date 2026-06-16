@@ -129,6 +129,7 @@ const newNode = (): NavNode => ({ dirs: new Map(), files: [] });
 function navTree(site: Site): NavNode {
   const root = newNode();
   for (const f of site.files) {
+    if (!f.note) continue; // nav lists folders + note pages only, not assets
     const out = site.outOf.get(f.rel)!;
     const parts = f.rel.split("/");
     let node = root;
@@ -137,8 +138,7 @@ function navTree(site: Site): NavNode {
       if (!child) node.dirs.set(part, (child = newNode()));
       node = child;
     }
-    const name = parts[parts.length - 1];
-    node.files.push([f.note ? stemOf(name) : name, out]);
+    node.files.push([stemOf(parts[parts.length - 1]), out]);
   }
   return root;
 }

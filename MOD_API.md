@@ -6,16 +6,20 @@ internals. A mod registers commands, right-click menu items, toolbar buttons,
 and startup hooks, and reaches the filesystem / renderer / network through host
 services.
 
-Two mods ship as worked examples, deliberately different in shape:
+Four mods ship as worked examples, deliberately different in shape:
 
 - [`src/mods/ssg`](src/mods/ssg) — an **action** mod: publishes a folder as a
   website (local folder, GitHub Pages, or PDF). It replaced the old hard-wired
   "share" feature.
 - [`src/mods/dataview`](src/mods/dataview) — an **inline content** mod: renders
   live `​```dataview` query blocks in the editor via `registerBlockRenderer`.
+- [`src/mods/toc`](src/mods/toc) — the simplest: a folder right-click action
+  that writes a `TOC.md`. Needs **no** new API — pure existing seams.
+- [`src/mods/daily`](src/mods/daily) — daily notes + a month calendar; the mod
+  that motivated `config()`, `fs.createDir/createFile`, and `ui.close`.
 
-Between them they exercise both kinds of extension point: discrete commands /
-menu items / toolbar buttons, and content rendered into the editor.
+Together they exercise both kinds of extension point: discrete commands / menu
+items / toolbar buttons, and content rendered into the editor.
 
 This guide is meant for **people and coding agents**. If you are an agent: the
 whole API is the `TextAPI` interface in [`src/mods/types.ts`](src/mods/types.ts);
@@ -84,6 +88,7 @@ Summary:
 | --- | --- |
 | `appVersion: string` | The app version. |
 | `currentRoot(): string \| null` | The folder open in this window. |
+| `config(): Config` | Read-only snapshot of app config (theme, `daily_dir`, fonts, …). |
 
 ### Registration — call these from `activate()`
 | Method | What it does |
@@ -102,6 +107,8 @@ Summary:
 | `fs.readBase64(path)` | Read any file (incl. binary) as base64. |
 | `fs.writeText(path, content)` | Write text to an exact path, creating parent dirs. |
 | `fs.copyFile(src, dest)` | Copy a file to an exact path, creating parent dirs. |
+| `fs.createDir(path)` | Create a directory and any missing parents. |
+| `fs.createFile(path)` | Create an empty file; rejects if it exists. |
 | `fs.pickDirectory({ title? })` | Native folder picker → path or `null`. |
 | `render.markdownToHtml(text)` | Markdown → HTML via the host renderer (see contract below). |
 | `notes.collect()` | Metadata (frontmatter, tags, tasks) for every note in the open folder, cached and refreshed after fs changes. |
@@ -110,6 +117,7 @@ Summary:
 | `ui.info(build)` | Open a modal; `build(box)` fills it. |
 | `ui.confirm(message, okLabel?)` | Yes/no modal → boolean. |
 | `ui.prompt(label, initial?)` | Single-line prompt → string or `null`. |
+| `ui.close()` | Close the modal opened via info/confirm/prompt. |
 
 ### The `render.markdownToHtml` contract
 
@@ -157,6 +165,11 @@ app.registerBlockRenderer({
 `ctx.onInvalidate` fires (debounced) whenever the folder changes, so a renderer
 can keep itself current. Return a cleanup function to release subscriptions.
 See [`src/mods/dataview`](src/mods/dataview) for the full example.
+
+The same renderers also run in the **markdown preview pane** (Ctrl+Shift+M):
+each fenced block of a registered `lang` is replaced by your widget there too,
+so `dataview` results (not the raw query) show up in the preview. `render(ctx)`
+needs no changes; `ctx.requestMeasure()` is a no-op in the preview.
 
 ---
 

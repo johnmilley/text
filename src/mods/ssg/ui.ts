@@ -3,7 +3,7 @@
  * render.ts (build) and sinks.ts (emit). */
 
 import type { TextAPI } from "../types";
-import { buildSite, gather } from "./site";
+import { buildSite, gather, type Site } from "./site";
 import { generateSite, type OutputFile } from "./render";
 import { emitLocal, emitPages, emitPdf } from "./sinks";
 
@@ -26,12 +26,15 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 /** Gather → name → render the whole site for `folder`. */
-async function build(app: TextAPI, folder: string): Promise<OutputFile[]> {
+async function build(
+  app: TextAPI,
+  folder: string,
+): Promise<{ site: Site; files: OutputFile[] }> {
   const tree = await app.fs.listTree(folder);
   const src = gather(folder, tree);
   if (src.length === 0) throw new Error("this folder has no files to publish");
   const site = buildSite(folder, folder.split("/").pop() || "site", src);
-  return generateSite(app, site);
+  return { site, files: await generateSite(app, site) };
 }
 
 export function openPublishDialog(app: TextAPI, folder: string) {
@@ -84,7 +87,7 @@ export function openPublishDialog(app: TextAPI, folder: string) {
           const dest = await app.fs.pickDirectory({ title: "publish into folder" });
           if (!dest) return;
           say("building…");
-          const files = await build(app, folder);
+          const { files } = await build(app, folder);
           await emitLocal(app, files, dest, say);
           say(`done — ${files.length} files written to ${dest}`);
         }),
@@ -107,8 +110,8 @@ export function openPublishDialog(app: TextAPI, folder: string) {
       go.addEventListener("click", () =>
         run(async () => {
           say("building…");
-          const files = await build(app, folder);
-          await emitPdf(app, files, folder.split("/").pop() || "site");
+          const { site, files } = await build(app, folder);
+          await emitPdf(app, files, site, folder.split("/").pop() || "site");
           say("opening the print dialog…");
         }),
       );
@@ -155,7 +158,7 @@ export function openPublishDialog(app: TextAPI, folder: string) {
           LS.set("slug", slug.value.trim());
           LS.set("token", remember.checked ? token.value : "");
           say("building…");
-          const files = await build(app, folder);
+          const { files } = await build(app, folder);
           const result = await emitPages(
             app,
             files,

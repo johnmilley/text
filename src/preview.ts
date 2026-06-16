@@ -17,6 +17,12 @@ export interface PreviewHost {
   /** open a relative link target ("dir/note.md") from the current note */
   openRelPath: (target: string) => void;
   openExternal: (url: string) => void;
+  /**
+   * Render mod block widgets (e.g. dataview) in place of their fenced-code
+   * blocks within `root`. Returns a disposer to tear those widgets down before
+   * the next render. The same renderers the editor uses, run on the preview.
+   */
+  renderBlocks: (root: HTMLElement) => () => void;
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
@@ -26,36 +32,13 @@ let host: PreviewHost;
 let on = false;
 let timer: number | undefined;
 let renderSeq = 0;
+let disposeBlocks: (() => void) | null = null;
 
 export const previewOn = () => on;
-
-let pvZoom = Number(localStorage.getItem("text.previewZoom")) || 1;
-let pvTheme = localStorage.getItem("text.previewTheme") ?? "";
-
-function applyZoom() {
-  pvZoom = Math.min(2.5, Math.max(0.6, Math.round(pvZoom * 10) / 10));
-  $("#preview-body").style.setProperty("--pv-zoom", String(pvZoom));
-  $("#preview-zoom").textContent = `${Math.round(pvZoom * 100)}%`;
-  localStorage.setItem("text.previewZoom", String(pvZoom));
-}
-
-function applyTheme() {
-  const body = $("#preview-body");
-  body.classList.remove("pv-textbook", "pv-classroom", "pv-sepia");
-  if (pvTheme) body.classList.add(`pv-${pvTheme}`);
-  localStorage.setItem("text.previewTheme", pvTheme);
-}
 
 export function initPreview(h: PreviewHost, onClose: () => void) {
   host = h;
   $("#preview-close").addEventListener("click", onClose);
-  $("#preview-zoom-out").addEventListener("click", () => ((pvZoom -= 0.1), applyZoom()));
-  $("#preview-zoom-in").addEventListener("click", () => ((pvZoom += 0.1), applyZoom()));
-  const themeSel = $<HTMLSelectElement>("#preview-theme");
-  themeSel.value = pvTheme;
-  themeSel.addEventListener("change", () => ((pvTheme = themeSel.value), applyTheme()));
-  applyZoom();
-  applyTheme();
   $("#preview-body").addEventListener("click", (e) => {
     const a = (e.target as HTMLElement).closest("a");
     if (!a) return;
@@ -75,6 +58,10 @@ export function setPreview(v: boolean) {
   on = v;
   $("#preview").hidden = !v;
   if (v) void render();
+  else {
+    disposeBlocks?.();
+    disposeBlocks = null;
+  }
 }
 
 /** Re-render soon (debounced — called on every keystroke while editing). */
@@ -97,6 +84,8 @@ async function render() {
   // the bar names the note being previewed (mirrors the split pane's bar)
   $("#preview-name").textContent = path ? (path.split("/").pop() ?? "preview") : "preview";
   if (!path || !host.isMarkdownish(path)) {
+    disposeBlocks?.();
+    disposeBlocks = null;
     body.replaceChildren();
     const hint = document.createElement("div");
     hint.className = "preview-hint";
@@ -108,7 +97,9 @@ async function render() {
   const html = await api.renderPreview(host.getText()).catch(() => null);
   if (mine !== renderSeq || html === null) return;
   const scroll = body.scrollTop;
+  disposeBlocks?.(); // tear down the previous render's block widgets
   body.innerHTML = html;
+  disposeBlocks = host.renderBlocks(body);
   body.scrollTop = scroll;
   for (const img of body.querySelectorAll<HTMLImageElement>("img[data-embed]")) {
     void host.resolveImage(img.dataset.embed!).then((src) => {

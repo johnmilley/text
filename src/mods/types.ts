@@ -11,7 +11,7 @@
  * worked example.
  */
 
-import type { Entry, NoteMeta } from "../api";
+import type { Config, Entry, NoteMeta } from "../api";
 
 // Block renderers hook into the editor; their types live with that plumbing.
 export type { BlockRenderContext, BlockRendererSpec } from "../blockrender";
@@ -61,6 +61,8 @@ export interface TextAPI {
   readonly appVersion: string;
   /** The folder currently open in this window, or `null`. */
   currentRoot(): string | null;
+  /** A read-only snapshot of the app config (theme, daily_dir, fonts, …). */
+  config(): Config;
 
   // ---- registration: call these from activate() ----
   registerCommand(cmd: CommandSpec): void;
@@ -86,6 +88,10 @@ export interface TextAPI {
     writeText(path: string, content: string): Promise<void>;
     /** Copy a file to an exact destination path, creating parent dirs. */
     copyFile(src: string, dest: string): Promise<void>;
+    /** Create a directory (and any missing parents). */
+    createDir(path: string): Promise<void>;
+    /** Create an empty file; rejects if it already exists (callers may ignore). */
+    createFile(path: string): Promise<void>;
     /** Native folder picker; resolves to the chosen path or `null`. */
     pickDirectory(opts?: PickDirOptions): Promise<string | null>;
   };
@@ -115,6 +121,8 @@ export interface TextAPI {
     confirm(message: string, okLabel?: string): Promise<boolean>;
     /** Single-line text prompt; resolves to the value or `null` if cancelled. */
     prompt(label: string, initial?: string): Promise<string | null>;
+    /** Close the modal opened via info/confirm/prompt. */
+    close(): void;
   };
 }
 
