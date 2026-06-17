@@ -3,8 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-/// Extensions treated as editable text. Anything else is left out of the
-/// tree so binaries, images, and sync droppings never show up.
+/// Extensions we treat as text without looking at the file — a fast path for
+/// the common cases. Any *other* non-media extension still counts as text if
+/// the file's bytes look like text (see `looks_like_text`), so arbitrary text
+/// files (.yaml, .gradle, .properties, .dockerfile, …) open too; only binaries
+/// and the media handled separately (images/av/pdf) stay out of the tree.
 pub const TEXT_EXTENSIONS: &[&str] = &[
     "md", "markdown", "mdown", "txt", "text", "json", "yaml", "yml", "toml", "ini", "cfg",
     "conf", "csv", "tsv", "log", "tex", "bib", "org", "rst", "adoc", "html", "htm", "css",
@@ -14,9 +17,43 @@ pub const TEXT_EXTENSIONS: &[&str] = &[
 
 pub fn is_text_file(path: &Path) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) => TEXT_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()),
+        Some(ext) => {
+            if TEXT_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) {
+                return true;
+            }
+            // not a curated text type and not media we view separately:
+            // fall back to sniffing the bytes so any UTF-8 text file opens.
+            if is_image_file(path) || is_audio_file(path) || is_video_file(path) || is_pdf_file(path)
+            {
+                return false;
+            }
+            looks_like_text(path)
+        }
         // extensionless files like LICENSE, TODO, Makefile-ish notes
         None => true,
+    }
+}
+
+/// Peek at a file's first bytes to decide whether it's UTF-8 text: a NUL byte
+/// (or invalid UTF-8) means binary. Keeps unknown-extension binaries out of the
+/// tree while letting any real text file through.
+fn looks_like_text(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut buf = [0u8; 8192];
+    let Ok(n) = file.read(&mut buf) else {
+        return false;
+    };
+    let chunk = &buf[..n];
+    if chunk.contains(&0) {
+        return false; // NUL byte ⇒ binary
+    }
+    match std::str::from_utf8(chunk) {
+        Ok(_) => true,
+        // tolerate a multibyte char sliced off at the 8 KiB boundary
+        Err(e) => e.error_len().is_none() && e.valid_up_to() > 0,
     }
 }
 
@@ -384,4 +421,45 @@ pub fn copy_file(src: String, dest: String) -> Result<(), String> {
     }
     fs::copy(Path::new(&src), dest).map_err(|e| format!("{}: {e}", dest.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(name: &str, bytes: &[u8]) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("text-test-{}-{}", std::process::id(), name));
+        fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    #[test]
+    fn unknown_extension_text_is_included() {
+        let p = tmp("app.gradle", b"plugins { id 'java' }\n");
+        assert!(is_text_file(&p));
+        fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn unknown_extension_binary_is_excluded() {
+        let p = tmp("blob.dat", &[0x00, 0x01, 0x02, 0xff, 0xfe]);
+        assert!(!is_text_file(&p));
+        fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn media_is_not_text() {
+        // a .png is media even if (improbably) its bytes look texty
+        let p = tmp("pic.png", b"not really a png");
+        assert!(!is_text_file(&p));
+        assert!(is_image_file(&p));
+        fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn curated_and_extensionless_are_text() {
+        assert!(is_text_file(Path::new("notes/todo.md")));
+        assert!(is_text_file(Path::new("data/config.yaml")));
+        assert!(is_text_file(Path::new("LICENSE")));
+    }
 }
