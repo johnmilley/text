@@ -209,8 +209,14 @@ function listingPages(site: Site): OutputFile[] {
 
 // ------------------------------------------------------------ whole site
 
-/** Build every output file for the site (pages, listings, assets, copies). */
-export async function generateSite(app: TextAPI, site: Site): Promise<OutputFile[]> {
+/** Build every output file for the site (pages, listings, assets, copies).
+ * `listings` (default true) generates index pages for folders without one;
+ * a single-note export turns it off so only the note page is emitted. */
+export async function generateSite(
+  app: TextAPI,
+  site: Site,
+  opts: { listings?: boolean } = {},
+): Promise<OutputFile[]> {
   const out: OutputFile[] = [
     { path: "_assets/style.css", text: siteCss },
     { path: "_assets/highlight.css", text: hljsCss },
@@ -226,6 +232,6 @@ export async function generateSite(app: TextAPI, site: Site): Promise<OutputFile
     }
   }
 
-  out.push(...listingPages(site));
+  if (opts.listings !== false) out.push(...listingPages(site));
   return out;
 }

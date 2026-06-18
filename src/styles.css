@@ -550,7 +550,9 @@ button:hover {
 }
 #tabs {
   display: flex;
-  flex: 1;
+  /* size to the open tabs so #tab-new sits right after the last one
+     (Firefox-style); still shrinks + scrolls when the tabs fill the bar */
+  flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;

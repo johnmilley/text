@@ -552,45 +552,58 @@ function openCtxMenu(e: MouseEvent, items: [string, () => void][]) {
     });
     menu.appendChild(item);
   }
-  menu.style.left = `${e.clientX}px`;
-  menu.style.top = `${e.clientY}px`;
   document.body.appendChild(menu);
+  // keep the menu on-screen: measure once attached, then shift it left/up if
+  // it would spill past the viewport (e.g. right-clicking a row near the edge).
+  const rect = menu.getBoundingClientRect();
+  const margin = 4;
+  const left = Math.max(margin, Math.min(e.clientX, window.innerWidth - rect.width - margin));
+  const top = Math.max(margin, Math.min(e.clientY, window.innerHeight - rect.height - margin));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
   const close = () => menu.remove();
   setTimeout(() => document.addEventListener("mousedown", close, { once: true }));
 }
 
-/** Right-click menu for a tree row, or for the tree background (no entry). */
+/** Right-click menu for a tree row, or for the tree background (no entry). The
+ * create/open actions stay pinned at the top; everything below them (including
+ * mod-contributed items) is sorted alphabetically. */
 function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
-  const items: [string, () => void][] = [];
-  const add = (label: string, run: () => void) => items.push([label, run]);
+  // the pinned top block: how you open/create things
+  const top: [string, () => void][] = [];
+  // the rest, shown alphabetically below the top block
+  const rest: [string, () => void][] = [];
   if (entry) {
     if (entry.is_dir) {
-      add("new note inside", () => void newNote(entry.path));
-      add("new folder inside", () => void newFolder(entry.path));
+      top.push(["new note inside", () => void newNote(entry.path)]);
+      top.push(["new folder inside", () => void newFolder(entry.path)]);
     } else {
-      add("open in new tab", () => void newTab(entry.path));
-      add("open in new window", () => {
-        if (root) void api.openWindow(root, entry.path).catch(() => {});
-      });
-      add("open in split pane", () => void openInSplit(entry.path));
-      add("move to…", () => void moveFileTo(entry.path));
-      add("find references", () => void showReferences(entry.path));
+      top.push(["open in new tab", () => void newTab(entry.path)]);
+      top.push([
+        "open in new window",
+        () => {
+          if (root) void api.openWindow(root, entry.path).catch(() => {});
+        },
+      ]);
+      top.push(["open in split pane", () => void openInSplit(entry.path)]);
+      rest.push(["move to…", () => void moveFileTo(entry.path)]);
+      rest.push(["find references", () => void showReferences(entry.path)]);
     }
-    add("rename", () => void renameEntry(entry));
-    add("copy", () => (copiedEntry = { path: entry.path, name: entry.name }));
-    add("duplicate", () => void duplicateEntry(entry));
+    rest.push(["rename", () => void renameEntry(entry)]);
+    rest.push(["copy", () => (copiedEntry = { path: entry.path, name: entry.name })]);
+    rest.push(["duplicate", () => void duplicateEntry(entry)]);
     if (copiedEntry) {
       const dest = entry.is_dir ? entry.path : parentOf(entry.path);
-      add(`paste "${copiedEntry.name}"`, () => void pasteInto(dest));
+      rest.push([`paste "${copiedEntry.name}"`, () => void pasteInto(dest)]);
     }
-    add("reveal in file manager", () => void revealItemInDir(entry.path));
-    add("delete", () => void deleteEntry(entry));
+    rest.push(["reveal in file manager", () => void revealItemInDir(entry.path)]);
+    rest.push(["delete", () => void deleteEntry(entry)]);
   } else if (root) {
-    add("new note", () => void newNote());
-    add("new folder", () => void newFolder());
-    if (copiedEntry) add(`paste "${copiedEntry.name}"`, () => void pasteInto(root!));
+    top.push(["new note", () => void newNote()]);
+    top.push(["new folder", () => void newFolder()]);
+    if (copiedEntry) rest.push([`paste "${copiedEntry.name}"`, () => void pasteInto(root!)]);
   }
-  // mod-contributed items (see TextAPI.addContextMenuItem)
+  // mod-contributed items (see TextAPI.addContextMenuItem) join the sorted rest
   const scope: ContextScope | null = entry
     ? entry.is_dir
       ? "folder"
@@ -601,10 +614,11 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
   if (scope) {
     const path = entry ? entry.path : root!;
     for (const item of modContextItems) {
-      if (item.scope.includes(scope)) add(item.label, () => item.run({ scope, path }));
+      if (item.scope.includes(scope)) rest.push([item.label, () => item.run({ scope, path })]);
     }
   }
-  openCtxMenu(e, items);
+  rest.sort((a, b) => a[0].localeCompare(b[0]));
+  openCtxMenu(e, [...top, ...rest]);
 }
 
 // ---------------------------------------------------------------- mods

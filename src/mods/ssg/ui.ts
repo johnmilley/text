@@ -3,7 +3,7 @@
  * render.ts (build) and sinks.ts (emit). */
 
 import type { TextAPI } from "../types";
-import { buildSite, gather, type Site } from "./site";
+import { baseOf, buildSite, dirOf, gather, resolve, stemOf, type Site } from "./site";
 import { generateSite, type OutputFile } from "./render";
 import { emitLocal, emitPages, emitPdf } from "./sinks";
 
@@ -37,10 +37,52 @@ async function build(
   return { site, files: await generateSite(app, site) };
 }
 
-export function openPublishDialog(app: TextAPI, folder: string) {
+/** Build a one-note site: just the chosen note plus the assets it actually
+ * embeds/links. Assets are located against the whole vault (`root`) so a note
+ * that pulls images from a central folder still bundles them. Wikilinks to
+ * other notes aren't published, so they fall back to broken-link styling. */
+async function buildOne(
+  app: TextAPI,
+  root: string,
+  file: string,
+): Promise<{ site: Site; files: OutputFile[] }> {
+  const all = gather(root, await app.fs.listTree(root));
+  const note = all.find((f) => f.path === file);
+  if (!note) throw new Error("that note is not inside the open folder");
+  if (!note.note) throw new Error("only markdown notes can be published this way");
+
+  // resolve the note's embeds/links against the full vault, keep only the
+  // (non-note) asset files they point at
+  const full = buildSite(root, "", all);
+  const srcByOut = new Map([...full.outOf].map(([src, out]) => [out, src]));
+  const html = await app.render.markdownToHtml(await app.fs.readText(note.path));
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const noteDir = dirOf(note.rel);
+  const assetRels = new Set<string>();
+  for (const node of Array.from(
+    doc.querySelectorAll<HTMLElement>("img[data-embed], a[data-path]"),
+  )) {
+    const target = node.dataset.embed ?? node.dataset.path ?? "";
+    const out = resolve(full, target, noteDir);
+    const src = out ? srcByOut.get(out) : undefined;
+    if (src) assetRels.add(src);
+  }
+  const assets = all.filter((f) => !f.note && assetRels.has(f.rel));
+
+  const site = buildSite(root, stemOf(baseOf(note.rel)), [note, ...assets]);
+  return { site, files: await generateSite(app, site, { listings: false }) };
+}
+
+/**
+ * The publish dialog. With `onlyFile` set (an absolute note path), it publishes
+ * just that note; otherwise it publishes everything under `folder`.
+ */
+export function openPublishDialog(app: TextAPI, folder: string, onlyFile?: string) {
+  const doBuild = () => (onlyFile ? buildOne(app, folder, onlyFile) : build(app, folder));
+  const label = onlyFile ? baseOf(onlyFile) : folder.split("/").pop();
   app.ui.info((box) => {
     box.classList.add("ssg-box");
-    box.append(el("div", "modal-caption", `publish "${folder.split("/").pop()}"`));
+    box.append(el("div", "modal-caption", `publish "${label}"`));
 
     const tabs = el("div", "ssg-tabs");
     const opts = el("div", "ssg-opts");
@@ -87,7 +129,7 @@ export function openPublishDialog(app: TextAPI, folder: string) {
           const dest = await app.fs.pickDirectory({ title: "publish into folder" });
           if (!dest) return;
           say("building…");
-          const { files } = await build(app, folder);
+          const { files } = await doBuild();
           await emitLocal(app, files, dest, say);
           say(`done — ${files.length} files written to ${dest}`);
         }),
@@ -110,8 +152,8 @@ export function openPublishDialog(app: TextAPI, folder: string) {
       go.addEventListener("click", () =>
         run(async () => {
           say("building…");
-          const { site, files } = await build(app, folder);
-          await emitPdf(app, files, site, folder.split("/").pop() || "site");
+          const { site, files } = await doBuild();
+          await emitPdf(app, files, site, label || "site");
           say("opening the print dialog…");
         }),
       );
@@ -158,7 +200,7 @@ export function openPublishDialog(app: TextAPI, folder: string) {
           LS.set("slug", slug.value.trim());
           LS.set("token", remember.checked ? token.value : "");
           say("building…");
-          const { files } = await build(app, folder);
+          const { files } = await doBuild();
           const result = await emitPages(
             app,
             files,

@@ -19,6 +19,11 @@ export const ssgMod: Mod = {
     const publish = (folder: string | null) => {
       if (folder) openPublishDialog(app, folder);
     };
+    // publish a single note: the open root anchors asset resolution
+    const publishFile = (file: string) => {
+      const root = app.currentRoot();
+      if (root) openPublishDialog(app, root, file);
+    };
 
     // Ctrl+Shift+S (rebindable in config.toml [keys] under "publish")
     app.registerCommand({
@@ -29,9 +34,14 @@ export const ssgMod: Mod = {
     });
 
     app.addContextMenuItem({
-      label: "publish as website…",
+      label: "publish…",
       scope: ["folder", "root"],
       run: (target) => publish(target.path),
+    });
+    app.addContextMenuItem({
+      label: "publish…",
+      scope: ["file"],
+      run: (target) => publishFile(target.path),
     });
 
     app.addToolbarButton({
