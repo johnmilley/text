@@ -56,12 +56,29 @@ async function openDailyCalendar(app: TextAPI) {
     flatten(await app.fs.listTree(root)).map((p) => (p.startsWith(base) ? p.slice(base.length) : p)),
   );
   const dir = dailyDir(app);
+  // index existing daily notes by month-day, so "on this day" can list the
+  // same date across other years
+  const prefix = dir ? `${dir}/` : "";
+  const dateRe = new RegExp(
+    `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\d{4}/\\d{2}/(\\d{4}-\\d{2}-\\d{2})\\.md$`,
+  );
+  const byMonthDay = new Map<string, string[]>();
+  for (const r of rels) {
+    const m = r.match(dateRe);
+    if (!m) continue;
+    const date = m[1];
+    const key = date.slice(5); // MM-DD
+    (byMonthDay.get(key) ?? byMonthDay.set(key, []).get(key)!).push(date);
+  }
+  for (const list of byMonthDay.values()) list.sort((a, b) => (a < b ? 1 : -1)); // newest first
+
   openCalendar(app, {
     hasNote: (date) => rels.has(`${dir}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`),
     open: (date) => {
       app.ui.close();
       void openDailyFor(app, date);
     },
+    anniversaries: (date) => (byMonthDay.get(date.slice(5)) ?? []).filter((d) => d !== date),
   });
 }
 

@@ -1452,6 +1452,77 @@ body.tree-dragging * {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
+/* a hollow marker (top-right) for days with notes in other years */
+.cal-day.has-anniversary::before {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  border: 1px solid var(--fg-muted);
+}
+
+/* "on this day" toggle + the panel it reveals */
+.cal-otd-btn {
+  width: 100%;
+  margin-top: 10px;
+  padding: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-muted);
+}
+.cal-otd-btn:hover {
+  color: var(--fg);
+}
+.cal-otd {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cal-otd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--fg-muted);
+  font-size: 0.85em;
+  padding-bottom: 2px;
+}
+.cal-otd-close {
+  color: var(--fg-muted);
+  padding: 0 4px;
+}
+.cal-otd-close:hover {
+  color: var(--fg);
+}
+.cal-otd-empty {
+  color: var(--fg-muted);
+  font-size: 0.85em;
+  padding: 2px 0;
+}
+.cal-otd-link {
+  text-align: left;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--fg);
+}
+.cal-otd-link:hover {
+  background: var(--bg-hover);
+}
+.cal-otd-all {
+  margin-top: 4px;
+  padding: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-muted);
+}
+.cal-otd-all:hover {
+  color: var(--fg);
+}
 
 /* ------------------------------------------------------------- zen mode */
 /* fullscreen writing: chrome gone, centered column, larger type; the issue

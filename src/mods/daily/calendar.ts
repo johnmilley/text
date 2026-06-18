@@ -12,6 +12,9 @@ export interface CalendarHost {
   hasNote: (date: string) => boolean;
   /** open (or create + open) the note for YYYY-MM-DD */
   open: (date: string) => void;
+  /** existing notes from *other* years that share this date's month + day,
+   * newest first — the "on this day in years past" set */
+  anniversaries: (date: string) => string[];
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -44,6 +47,53 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
     const grid = document.createElement("div");
     grid.className = "cal-grid";
 
+    // "on this day" panel: entries from the same month+day in other years
+    const panel = document.createElement("div");
+    panel.className = "cal-otd";
+    panel.hidden = true;
+
+    const showOnThisDay = (date: string) => {
+      const [, mo, d] = date.split("-").map(Number);
+      const list = host.anniversaries(date);
+      panel.replaceChildren();
+
+      const head2 = document.createElement("div");
+      head2.className = "cal-otd-head";
+      head2.append(`on this day · ${MONTHS[mo - 1]} ${d}`);
+      const x = document.createElement("button");
+      x.className = "cal-otd-close";
+      x.textContent = "×";
+      x.title = "close";
+      x.addEventListener("click", () => (panel.hidden = true));
+      head2.appendChild(x);
+      panel.appendChild(head2);
+
+      if (!list.length) {
+        const empty = document.createElement("div");
+        empty.className = "cal-otd-empty";
+        empty.textContent = "no entries from other years";
+        panel.appendChild(empty);
+      } else {
+        for (const ad of list) {
+          const link = document.createElement("button");
+          link.className = "cal-otd-link";
+          link.textContent = ad;
+          link.addEventListener("click", () => host.open(ad));
+          panel.appendChild(link);
+        }
+        if (list.length > 1) {
+          const all = document.createElement("button");
+          all.className = "cal-otd-all";
+          all.textContent = `open all (${list.length})`;
+          all.addEventListener("click", () => {
+            for (const ad of list) host.open(ad);
+          });
+          panel.appendChild(all);
+        }
+      }
+      panel.hidden = false;
+    };
+
     const render = () => {
       title.textContent = `${MONTHS[month]} ${year}`;
       grid.replaceChildren();
@@ -70,8 +120,18 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
         ) {
           cell.classList.add("today");
         }
-        cell.title = date + (host.hasNote(date) ? "" : " (creates the note)");
+        const others = host.anniversaries(date).length;
+        if (others) cell.classList.add("has-anniversary");
+        cell.title =
+          date +
+          (host.hasNote(date) ? "" : " (creates the note)") +
+          (others ? ` · ${others} other year${others > 1 ? "s" : ""} — right-click` : "");
         cell.addEventListener("click", () => host.open(date));
+        // right-click any day to see that day's entries from other years
+        cell.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          showOnThisDay(date);
+        });
         grid.appendChild(cell);
       }
     };
@@ -99,7 +159,15 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
       nav("›", "next month", () => shift(1)),
       nav("»", "next year", () => shiftYear(1)),
     );
-    box.append(head, grid);
+    const otdBtn = document.createElement("button");
+    otdBtn.className = "cal-otd-btn";
+    otdBtn.textContent = "on this day";
+    otdBtn.title = "entries from this date in past years";
+    otdBtn.addEventListener("click", () =>
+      showOnThisDay(dateStr(today.getFullYear(), today.getMonth(), today.getDate())),
+    );
+
+    box.append(head, grid, otdBtn, panel);
     render();
 
     box.tabIndex = -1;
