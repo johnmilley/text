@@ -58,7 +58,7 @@ const isMain = getCurrentWindow().label === "main";
 
 const isMac = /Mac/i.test(navigator.platform);
 
-const APP_VERSION = "0.2.2";
+const APP_VERSION = "0.2.4";
 
 /** Editor state stashed when a text-file tab is backgrounded. */
 interface TabSnap {
