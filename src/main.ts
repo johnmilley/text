@@ -2049,8 +2049,10 @@ async function importImageBlob(blob: File): Promise<string | null> {
   }
 }
 
-/** Native file drop: copy images into the notes folder and, when dropped on
- * an open note, insert an embed at the drop point. */
+/** Native file drop: copy the file into the assets folder (config.image_dir)
+ * and, when dropped on an open note, insert an embed at the drop point. Images
+ * embed inline; any other file (pdf, zip, …) becomes an `![[name]]` attachment
+ * link (see render.rs / preview_embed_html). */
 async function handleFileDrop(paths: string[], position: { x: number; y: number }) {
   if (!root) return;
   const scale = window.devicePixelRatio || 1;
@@ -2058,8 +2060,6 @@ async function handleFileDrop(paths: string[], position: { x: number; y: number 
   const y = position.y / scale;
   const overEditor = !!document.elementFromPoint(x, y)?.closest("#editor-host");
   for (const src of paths) {
-    const name = src.split("/").pop()!;
-    if (!isViewableImage(name) && !/\.svg$/i.test(name)) continue;
     try {
       // already inside the notes folder — embed it without copying
       const path = src.startsWith(root + "/") ? src : await api.importFile(src, imageDestDir());
