@@ -1,9 +1,10 @@
 [package]
 name = "text"
 version = "0.2.5"
-description = "A Tauri App"
-authors = ["you"]
+description = "A local-first markdown editor"
+authors = ["Johnathan Milley"]
 edition = "2021"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
