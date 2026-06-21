@@ -2,9 +2,14 @@ import type { TextAPI } from "../types";
 
 /**
  * Calendar for daily notes (ala Obsidian's Calendar plugin): a month grid
- * where days that already have a note are marked; clicking any day opens
+ * where days that already have a note are marked; activating any day opens
  * (creating if needed) that day's note. Daily notes live at
  * daily_dir/YYYY/MM/YYYY-MM-DD.md — the same scheme the "today" button uses.
+ *
+ * On open the keyboard lands on a selected day (today): arrows move day to day
+ * (crossing months), Enter opens it; PageUp/Down page months, Shift+PageUp/Down
+ * page years. The "on this day" panel below the grid always reflects the
+ * selected day, listing that date's notes from other years.
  */
 
 export interface CalendarHost {
@@ -19,6 +24,7 @@ export interface CalendarHost {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const dateStr = (y: number, m: number, d: number) => `${y}-${pad(m + 1)}-${pad(d)}`;
+const daysInMonth = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -27,8 +33,10 @@ const MONTHS = [
 
 export function openCalendar(app: TextAPI, host: CalendarHost) {
   const today = new Date();
+  // displayed month + selected day-of-month (starts on today)
   let year = today.getFullYear();
   let month = today.getMonth();
+  let sel = today.getDate();
 
   app.ui.info((box) => {
     box.classList.add("calendar-box");
@@ -47,12 +55,12 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
     const grid = document.createElement("div");
     grid.className = "cal-grid";
 
-    // "on this day" panel: entries from the same month+day in other years
+    // "on this day" panel: always visible, tracks the selected day and lists
+    // that date's notes from other years
     const panel = document.createElement("div");
     panel.className = "cal-otd";
-    panel.hidden = true;
 
-    const showOnThisDay = (date: string) => {
+    const updatePanel = (date: string) => {
       const [, mo, d] = date.split("-").map(Number);
       const list = host.anniversaries(date);
       panel.replaceChildren();
@@ -60,12 +68,6 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
       const head2 = document.createElement("div");
       head2.className = "cal-otd-head";
       head2.append(`on this day · ${MONTHS[mo - 1]} ${d}`);
-      const x = document.createElement("button");
-      x.className = "cal-otd-close";
-      x.textContent = "×";
-      x.title = "close";
-      x.addEventListener("click", () => (panel.hidden = true));
-      head2.appendChild(x);
       panel.appendChild(head2);
 
       if (!list.length) {
@@ -91,10 +93,12 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
           panel.appendChild(all);
         }
       }
-      panel.hidden = false;
     };
 
-    const render = () => {
+    // render the month; `focusSel` puts keyboard focus on the selected day so
+    // arrow navigation continues (set for keyboard-driven renders + first show)
+    const render = (focusSel: boolean) => {
+      sel = Math.min(sel, daysInMonth(year, month));
       title.textContent = `${MONTHS[month]} ${year}`;
       grid.replaceChildren();
       for (const d of ["mo", "tu", "we", "th", "fr", "sa", "su"]) {
@@ -105,8 +109,9 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
       }
       const first = new Date(year, month, 1);
       const lead = (first.getDay() + 6) % 7; // Monday-first
-      const days = new Date(year, month + 1, 0).getDate();
+      const days = daysInMonth(year, month);
       for (let i = 0; i < lead; i++) grid.appendChild(document.createElement("div"));
+      let selCell: HTMLButtonElement | null = null;
       for (let d = 1; d <= days; d++) {
         const date = dateStr(year, month, d);
         const cell = document.createElement("button");
@@ -120,64 +125,82 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
         ) {
           cell.classList.add("today");
         }
+        if (d === sel) {
+          cell.classList.add("kbd-sel");
+          selCell = cell;
+        }
         const others = host.anniversaries(date).length;
         if (others) cell.classList.add("has-anniversary");
         cell.title =
           date +
           (host.hasNote(date) ? "" : " (creates the note)") +
-          (others ? ` · ${others} other year${others > 1 ? "s" : ""} — right-click` : "");
+          (others ? ` · ${others} other year${others > 1 ? "s" : ""}` : "");
         cell.addEventListener("click", () => host.open(date));
-        // right-click any day to see that day's entries from other years
-        cell.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          showOnThisDay(date);
+        // pointing at a day selects it, so the "on this day" panel follows
+        cell.addEventListener("mouseenter", () => {
+          if (sel === d) return;
+          sel = d;
+          render(false);
         });
         grid.appendChild(cell);
       }
+      updatePanel(dateStr(year, month, sel));
+      if (focusSel) selCell?.focus({ preventScroll: true });
     };
 
+    const selDate = () => dateStr(year, month, sel);
+
+    // move the selection by whole days, crossing month/year boundaries
+    const moveDay = (delta: number) => {
+      const abs = new Date(year, month, sel + delta);
+      year = abs.getFullYear();
+      month = abs.getMonth();
+      sel = abs.getDate();
+      render(true);
+    };
     const shift = (by: number) => {
       month += by;
       while (month < 0) (month += 12), year--;
       while (month > 11) (month -= 12), year++;
-      render();
+      render(true);
     };
     const shiftYear = (by: number) => {
       year += by;
-      render();
+      render(true);
     };
 
     head.append(
       nav("«", "previous year", () => shiftYear(-1)),
       nav("‹", "previous month", () => shift(-1)),
       title,
-      nav("today", "back to this month", () => {
+      nav("today", "back to today", () => {
         year = today.getFullYear();
         month = today.getMonth();
-        render();
+        sel = today.getDate();
+        render(true);
       }),
       nav("›", "next month", () => shift(1)),
       nav("»", "next year", () => shiftYear(1)),
     );
-    const otdBtn = document.createElement("button");
-    otdBtn.className = "cal-otd-btn";
-    otdBtn.textContent = "on this day";
-    otdBtn.title = "entries from this date in past years";
-    otdBtn.addEventListener("click", () =>
-      showOnThisDay(dateStr(today.getFullYear(), today.getMonth(), today.getDate())),
-    );
 
-    box.append(head, grid, otdBtn, panel);
-    render();
+    box.append(head, grid, panel);
 
     box.tabIndex = -1;
-    // arrows page months; Shift+arrows (and PageUp/Down) page years
+    // arrows move day-by-day (± a week vertically); Enter opens the selected
+    // day; PageUp/Down page months, Shift+PageUp/Down page years
     box.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowLeft") e.shiftKey ? shiftYear(-1) : shift(-1);
-      else if (e.key === "ArrowRight") e.shiftKey ? shiftYear(1) : shift(1);
-      else if (e.key === "PageUp") shiftYear(-1);
-      else if (e.key === "PageDown") shiftYear(1);
+      switch (e.key) {
+        case "ArrowLeft": e.preventDefault(); moveDay(-1); break;
+        case "ArrowRight": e.preventDefault(); moveDay(1); break;
+        case "ArrowUp": e.preventDefault(); moveDay(-7); break;
+        case "ArrowDown": e.preventDefault(); moveDay(7); break;
+        case "Enter":
+        case " ": e.preventDefault(); host.open(selDate()); break;
+        case "PageUp": e.preventDefault(); e.shiftKey ? shiftYear(-1) : shift(-1); break;
+        case "PageDown": e.preventDefault(); e.shiftKey ? shiftYear(1) : shift(1); break;
+      }
     });
-    box.focus();
+
+    render(true);
   });
 }

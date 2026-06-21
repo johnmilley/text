@@ -546,6 +546,10 @@ function openCtxMenu(e: MouseEvent, items: [string, () => void][]) {
     // mousedown, not click: the document-level close handler below also fires
     // on mousedown and would remove the menu before a click could complete.
     item.addEventListener("mousedown", (ev) => {
+      // preventDefault so the browser doesn't move focus to the menu item after
+      // this handler — otherwise a dialog opened by run() (move/rename) would
+      // lose the focus it just put on its input, forcing a click to type.
+      ev.preventDefault();
       ev.stopPropagation();
       menu.remove();
       run();
@@ -1285,6 +1289,7 @@ async function moveFileTo(path: string) {
   remapTabs(path, to);
   await refreshTree();
   setCurrentRow(currentPath);
+  refocusTree(to);
   updateStatus();
 }
 
@@ -1891,6 +1896,20 @@ function renameSelected() {
   if (entry) void renameEntry(entry);
 }
 
+function moveSelected() {
+  const path = treeSel ?? currentPath;
+  if (path) void moveFileTo(path);
+}
+
+/** Return keyboard focus to the file tree after a browser-driven file op
+ * (rename/move), selecting `path` if its row is visible, so arrow-key
+ * navigation continues instead of dropping to the body. */
+function refocusTree(path: string | null) {
+  showPane("files");
+  if (path && rowByPath.has(path)) markTreeSel(path);
+  treeEl.focus();
+}
+
 async function renameEntry(entry: api.Entry) {
   const name = await promptText("rename to", entry.name);
   if (!name || name === entry.name) return;
@@ -1905,6 +1924,7 @@ async function renameEntry(entry: api.Entry) {
     remapTabs(entry.path, to);
     await refreshTree();
     setCurrentRow(currentPath);
+    refocusTree(to);
     updateStatus();
   } catch (err) {
     showIssue(String(err), [{ label: "ok", run: hideIssue }]);
@@ -2631,6 +2651,7 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "split", combo: "ctrl+shift+\\", what: "split editor (vertical → horizontal → off)", run: () => void cycleSplit() },
   { id: "preview", combo: "ctrl+shift+m", what: "markdown preview (rendered, beside the editor)", run: togglePreview },
   { id: "focus_tree", combo: "ctrl+e", what: "focus file tree (arrows move, enter opens, esc returns)", run: focusTree },
+  { id: "move_file", combo: "ctrl+m", what: "move the selected file/folder to another folder", run: moveSelected },
   { id: "zen", combo: "alt+z", what: "zen mode (fullscreen, typewriter) — also F11", run: () => void toggleZen() },
 ];
 

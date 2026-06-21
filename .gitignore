@@ -26,3 +26,9 @@ dist-ssr
 
 changes.txt
 history_changes.txt
+
+# Local scratch / working files (not part of the build)
+assets/
+testing/
+md_reference.md
+markdown reference.md

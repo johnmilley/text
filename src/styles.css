@@ -1452,6 +1452,17 @@ body.tree-dragging * {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
+/* the keyboard-selected day (arrows move it; Enter opens it) */
+.cal-day.kbd-sel {
+  background: var(--accent);
+  color: var(--bg);
+}
+.cal-day.kbd-sel.has-note::after {
+  background: var(--bg);
+}
+.cal-day:focus {
+  outline: none;
+}
 /* a hollow marker (top-right) for days with notes in other years */
 .cal-day.has-anniversary::before {
   content: "";
@@ -1464,18 +1475,7 @@ body.tree-dragging * {
   border: 1px solid var(--fg-muted);
 }
 
-/* "on this day" toggle + the panel it reveals */
-.cal-otd-btn {
-  width: 100%;
-  margin-top: 10px;
-  padding: 4px 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--fg-muted);
-}
-.cal-otd-btn:hover {
-  color: var(--fg);
-}
+/* "on this day" panel — always shown, tracks the selected day */
 .cal-otd {
   margin-top: 8px;
   border-top: 1px solid var(--border);
@@ -1485,19 +1485,9 @@ body.tree-dragging * {
   gap: 3px;
 }
 .cal-otd-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   color: var(--fg-muted);
   font-size: 0.85em;
   padding-bottom: 2px;
-}
-.cal-otd-close {
-  color: var(--fg-muted);
-  padding: 0 4px;
-}
-.cal-otd-close:hover {
-  color: var(--fg);
 }
 .cal-otd-empty {
   color: var(--fg-muted);
