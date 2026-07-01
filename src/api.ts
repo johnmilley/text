@@ -44,6 +44,8 @@ export interface Config {
   line_numbers: boolean;
   highlight_line: boolean;
   vim_mode: boolean;
+  /** render single newlines as line breaks in the preview (wysiwyg) */
+  single_line_breaks: boolean;
   root: string | null;
   recent_roots: string[];
   pinned_roots: string[];
@@ -51,6 +53,12 @@ export interface Config {
   image_dir: string;
   sidebar_width: number;
   sidebar_right: boolean;
+  /** keep the file sidebar visible in zen / fullscreen mode */
+  zen_sidebar: boolean;
+  /** typewriter scrolling in zen mode */
+  zen_typewriter: boolean;
+  /** where the typewriter line sits: "top" (upper third) or "center" */
+  typewriter_anchor: string;
   keys: Record<string, string>;
 }
 
@@ -118,6 +126,16 @@ export interface Backend {
   watchRoot(root: string): Promise<void>;
 }
 
+/**
+ * Whether single newlines render as <br> (wysiwyg). Config-driven and set by
+ * the app (see setSingleLineBreaks), so every render path — preview, SSG, PDF,
+ * mods — honours it without threading the flag through each caller.
+ */
+let singleLineBreaks = false;
+export const setSingleLineBreaks = (v: boolean) => {
+  singleLineBreaks = v;
+};
+
 /** The desktop backend: every call is a Tauri command into the Rust core. */
 const tauriBackend: Backend = {
   listTree: (root) => invoke<Entry[]>("list_tree", { root }),
@@ -143,7 +161,7 @@ const tauriBackend: Backend = {
   openWindow: (root, file) => invoke<void>("open_window", { root, file }),
   windowInitParams: () => invoke<WindowInit | null>("window_init_params"),
   collectNotes: (root) => invoke<NoteMeta[]>("collect_notes", { root }),
-  renderPreview: (text) => invoke<string>("render_preview", { text }),
+  renderPreview: (text) => invoke<string>("render_preview", { text, singleLineBreaks }),
   listThemes: () => invoke<Theme[]>("list_themes"),
   themesDirPath: () => invoke<string>("themes_dir_path"),
   loadConfig: () => invoke<Config>("load_config"),

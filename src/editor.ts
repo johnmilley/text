@@ -50,18 +50,31 @@ const isMarkdownish = (filename: string) =>
 
 const isMac = /Mac/i.test(navigator.platform);
 
-/** Typewriter scrolling (zen mode): keep the cursor line vertically centered
- * while typing or moving. Dispatched on the next frame — dispatching from
- * inside an update listener is not allowed. */
-const typewriterScroll = () =>
+export type TypewriterAnchor = "top" | "center";
+
+/** Scroll the cursor line to its typewriter resting place: the vertical middle
+ * ("center"), or the upper third ("top", with a margin so it doesn't ride the
+ * very edge). */
+const scrollToAnchor = (head: number, anchor: TypewriterAnchor) =>
+  anchor === "top"
+    ? EditorView.scrollIntoView(head, { y: "start", yMargin: window.innerHeight * 0.28 })
+    : EditorView.scrollIntoView(head, { y: "center" });
+
+/** Typewriter scrolling (zen mode): keep the cursor line at a fixed spot while
+ * typing or moving. Dispatched on the next frame — dispatching from inside an
+ * update listener is not allowed. */
+const typewriterScroll = (anchor: TypewriterAnchor) =>
   EditorView.updateListener.of((update) => {
     if (!update.docChanged && !update.selectionSet) return;
-    const head = update.state.selection.main.head;
+    const sel = update.state.selection.main;
+    // don't recentre while a range is selected — otherwise the view scrolls on
+    // every extend and makes highlighting (mouse drag or shift+arrows) a fight.
+    // Resumes once the selection collapses back to a plain caret.
+    if (!sel.empty) return;
+    const head = sel.head;
     requestAnimationFrame(() => {
       if (update.view.state.selection.main.head !== head) return; // stale
-      update.view.dispatch({
-        effects: EditorView.scrollIntoView(head, { y: "center" }),
-      });
+      update.view.dispatch({ effects: scrollToAnchor(head, anchor) });
     });
   });
 
@@ -235,6 +248,7 @@ export class Editor {
   private callbacks: EditorCallbacks;
   private vimOn = false;
   private typewriterOn = false;
+  private typewriterAnchor: TypewriterAnchor = "top";
   private lineNumbersOn = false;
   private highlightLineOn = true;
   private currentFile = "";
@@ -252,7 +266,7 @@ export class Editor {
     const cbs = this.callbacks;
     return [
       this.vimMode.of(this.vimOn ? vim() : []),
-      this.typewriter.of(this.typewriterOn ? typewriterScroll() : []),
+      this.typewriter.of(this.typewriterOn ? typewriterScroll(this.typewriterAnchor) : []),
       this.lang.of([]),
       cmTheme,
       baseHighlighting(),
@@ -507,18 +521,17 @@ export class Editor {
     });
   }
 
-  /** Zen mode: keep the cursor line vertically centered while editing. */
-  setTypewriter(on: boolean) {
-    if (on === this.typewriterOn) return;
+  /** Zen mode: keep the cursor line at its anchor spot while editing. */
+  setTypewriter(on: boolean, anchor: TypewriterAnchor = this.typewriterAnchor) {
+    if (on === this.typewriterOn && anchor === this.typewriterAnchor) return;
     this.typewriterOn = on;
+    this.typewriterAnchor = anchor;
     this.view.dispatch({
-      effects: this.typewriter.reconfigure(on ? typewriterScroll() : []),
+      effects: this.typewriter.reconfigure(on ? typewriterScroll(anchor) : []),
     });
     if (on) {
       this.view.dispatch({
-        effects: EditorView.scrollIntoView(this.view.state.selection.main.head, {
-          y: "center",
-        }),
+        effects: scrollToAnchor(this.view.state.selection.main.head, anchor),
       });
     }
   }

@@ -588,6 +588,15 @@ button:hover {
   content: " •";
   color: var(--accent);
 }
+/* a "visitor" tab: a file opened from outside the current folder */
+.tab.external .tab-label {
+  font-style: italic;
+}
+.tab.external .tab-label::before {
+  content: "↗ ";
+  opacity: 0.55;
+  font-style: normal;
+}
 .tab-close {
   padding: 0 4px;
   color: var(--fg-muted);
@@ -931,6 +940,8 @@ body.tree-dragging * {
 .welcome-box {
   text-align: center;
   color: var(--fg-muted);
+  max-width: 520px;
+  padding: 24px;
 }
 .welcome-box h1 {
   font-family: var(--font-editor);
@@ -938,14 +949,68 @@ body.tree-dragging * {
   color: var(--fg);
   margin: 0 0 4px;
 }
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 18px 0 6px;
+}
 .welcome-box button {
-  margin: 14px 0;
   padding: 6px 18px;
   border: 1px solid var(--accent);
   color: var(--accent);
 }
-.welcome-keys {
+.welcome-sub {
+  margin: 18px 0 6px;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.7;
+}
+.welcome-recent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.welcome-file {
+  border: none;
+  background: none;
+  color: var(--link);
+  cursor: pointer;
+  padding: 2px 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.welcome-file:hover {
+  text-decoration: underline;
+}
+/* inline shortcut cheatsheet — two columns: key, then what it does */
+.welcome-keys-grid {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 4px 12px;
+  align-items: baseline;
+  margin-top: 22px;
+  text-align: left;
   font-size: 0.85em;
+}
+.welcome-keys-grid kbd {
+  justify-self: end;
+  font-family: var(--font-editor);
+  color: var(--fg);
+  opacity: 0.85;
+}
+/* a custom _newtab.md page renders as ordinary markdown, left-aligned */
+.welcome-custom {
+  text-align: left;
+  color: var(--fg);
+  max-width: 640px;
+  overflow: auto;
+  max-height: 80vh;
 }
 
 /* ------------------------------------------------------------- modal */
@@ -1101,6 +1166,18 @@ body.tree-dragging * {
   width: 180px;
 }
 .set-input:focus {
+  border-color: var(--accent);
+}
+.set-select {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  outline: none;
+  font: inherit;
+}
+.set-select:focus {
   border-color: var(--accent);
 }
 .set-stepper {
@@ -1520,17 +1597,13 @@ body.tree-dragging * {
 
 body.zen #titlebar,
 body.zen #tabbar,
-body.zen #sidebar,
-body.zen #resizer,
 body.zen .grip {
   display: none !important;
 }
-/* split and preview stay usable in zen, but without the giant typewriter
-   padding that only makes sense for a single centred column */
-body.zen #content:has(#pane2:not([hidden])) .cm-content,
-body.zen #content:has(#preview:not([hidden])) .cm-content {
-  padding-top: 12vh;
-  padding-bottom: 30vh;
+/* the file sidebar hides in zen unless "keep sidebar in zen" is on */
+body.zen:not(.zen-sidebar) #sidebar,
+body.zen:not(.zen-sidebar) #resizer {
+  display: none !important;
 }
 body.zen .cm-editor {
   font-size: calc(var(--editor-font-size, 15px) * 1.3);
@@ -1538,10 +1611,29 @@ body.zen .cm-editor {
 body.zen .cm-content {
   max-width: 68ch;
   margin: 0 auto;
-  /* room above and below so the cursor line can hold the screen's middle
-     (typewriter scrolling) even at the start and end of a note */
+}
+/* typewriter, centred: lots of room above and below so the cursor line can
+   hold the screen's middle even at the very start and end of a note */
+body.zen.zen-tw:not(.zen-tw-top) .cm-content {
   padding-top: 45vh;
   padding-bottom: 50vh;
+}
+/* typewriter, upper-third anchor: less above, more below */
+body.zen.zen-tw-top .cm-content {
+  padding-top: 26vh;
+  padding-bottom: 70vh;
+}
+/* zen without typewriter: just a clean centred column, modest padding */
+body.zen:not(.zen-tw) .cm-content {
+  padding-top: 8vh;
+  padding-bottom: 20vh;
+}
+/* split and preview stay usable in zen, but without the giant typewriter
+   padding that only makes sense for a single centred column */
+body.zen #content:has(#pane2:not([hidden])) .cm-content,
+body.zen #content:has(#preview:not([hidden])) .cm-content {
+  padding-top: 12vh;
+  padding-bottom: 30vh;
 }
 
 /* ----------------------------------------------------------------- macOS */

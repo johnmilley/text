@@ -15,10 +15,14 @@ export interface SettingsHost {
   applyFontSizes(): void;
   applyMargin(): void;
   applyVim(): void;
+  /** push the single-line-breaks setting to the renderer + re-render preview */
+  applySingleLineBreaks(): void;
   /** line numbers + current-line highlight */
   applyEditorView(): void;
   /** move the sidebar to the configured edge */
   applySidebarSide(): void;
+  /** re-apply zen-mode state when its settings change */
+  applyZen(): void;
   /** open the bundled markdown reference note */
   openDemo(): void;
   /** closes settings (pickers replace the modal) */
@@ -173,6 +177,72 @@ export function openSettings(host: SettingsHost) {
         host.applyVim,
       ),
       "modal editing via codemirror-vim",
+    );
+
+    row(
+      "single line breaks",
+      checkbox(
+        () => host.config.single_line_breaks,
+        (v) => (host.config.single_line_breaks = v),
+        host.applySingleLineBreaks,
+      ),
+      "render every newline in the preview (more wysiwyg), not just blank-line paragraph breaks",
+    );
+
+    // ------------------------------------------------------------- zen mode
+    section("zen mode");
+
+    const select = (
+      get: () => string,
+      set: (v: string) => void,
+      options: [string, string][],
+      apply: () => void,
+    ) => {
+      const sel = el("select", "set-select") as HTMLSelectElement;
+      for (const [value, label] of options) {
+        const opt = el("option", undefined, label) as HTMLOptionElement;
+        opt.value = value;
+        sel.appendChild(opt);
+      }
+      sel.value = get();
+      sel.addEventListener("change", () => {
+        set(sel.value);
+        apply();
+        host.save();
+      });
+      return sel;
+    };
+
+    row(
+      "keep sidebar in zen",
+      checkbox(
+        () => host.config.zen_sidebar,
+        (v) => (host.config.zen_sidebar = v),
+        host.applyZen,
+      ),
+      "show the file tree in fullscreen / zen instead of hiding it",
+    );
+    row(
+      "typewriter scrolling",
+      checkbox(
+        () => host.config.zen_typewriter,
+        (v) => (host.config.zen_typewriter = v),
+        host.applyZen,
+      ),
+      "in zen, hold the cursor line at a fixed spot as you type",
+    );
+    row(
+      "cursor position",
+      select(
+        () => host.config.typewriter_anchor,
+        (v) => (host.config.typewriter_anchor = v),
+        [
+          ["top", "upper third"],
+          ["center", "middle"],
+        ],
+        host.applyZen,
+      ),
+      "where the typewriter line rests",
     );
 
     // --------------------------------------------------------------- files

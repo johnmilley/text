@@ -118,9 +118,20 @@ fn preview_embed_html(dest: &str, alt: &str, wiki: bool) -> String {
 /// `<a data-wikilink>` (the full `target#anchor` is preserved) and local link
 /// targets `<a data-path>`; embeds become `<img data-embed>` or `data-path`
 /// attachment links. The consumer resolves these against the open folder.
-pub fn render_preview_html(text: &str) -> String {
+pub fn render_preview_html(text: &str, single_line_breaks: bool) -> String {
     let mut events: Vec<Event> = Parser::new_ext(text, MD_OPTIONS).collect();
     add_heading_ids(&mut events);
+    // WYSIWYG line breaks: a single newline in the source is a CommonMark soft
+    // break (renders as a space, joining lines into one paragraph). When the
+    // user opts in, promote every soft break to a hard <br> so the rendered
+    // output matches the editor line-for-line.
+    if single_line_breaks {
+        for ev in &mut events {
+            if matches!(ev, Event::SoftBreak) {
+                *ev = Event::HardBreak;
+            }
+        }
+    }
 
     let mut out: Vec<Event> = Vec::with_capacity(events.len());
     let mut raw_link = false; // an open <a> we emitted as raw HTML
@@ -182,8 +193,8 @@ pub fn render_preview_html(text: &str) -> String {
 }
 
 #[tauri::command]
-pub fn render_preview(text: String) -> String {
-    render_preview_html(&text)
+pub fn render_preview(text: String, single_line_breaks: bool) -> String {
+    render_preview_html(&text, single_line_breaks)
 }
 
 // ---------------------------------------------------------------- tests
@@ -196,6 +207,7 @@ mod tests {
     fn preview_marks_local_targets() {
         let html = render_preview_html(
             "see [[note]] and [b](dir/b.md)\n\n![[pic.png|200]]\n\n![](https://x/y.png)",
+            false,
         );
         assert!(html.contains("data-wikilink=\"note\""), "{html}");
         assert!(html.contains("data-path=\"dir/b.md\""), "{html}");
@@ -208,7 +220,7 @@ mod tests {
 
     #[test]
     fn wikilink_anchor_is_preserved() {
-        let html = render_preview_html("[[note#My Section|alias]]");
+        let html = render_preview_html("[[note#My Section|alias]]", false);
         // the consumer needs the anchor to resolve deep links in a static site
         assert!(html.contains("data-wikilink=\"note#My Section\""), "{html}");
         assert!(html.contains(">alias<"), "{html}");
@@ -216,7 +228,17 @@ mod tests {
 
     #[test]
     fn heading_ids_are_added() {
-        let html = render_preview_html("# Hello World");
+        let html = render_preview_html("# Hello World", false);
         assert!(html.contains("id=\"hello-world\""), "{html}");
+    }
+
+    #[test]
+    fn single_line_breaks_promote_soft_breaks() {
+        // off: a single newline joins the two lines into one paragraph
+        let joined = render_preview_html("line one\nline two", false);
+        assert!(!joined.contains("<br"), "{joined}");
+        // on: the same newline becomes a hard <br>
+        let broken = render_preview_html("line one\nline two", true);
+        assert!(broken.contains("<br"), "{broken}");
     }
 }

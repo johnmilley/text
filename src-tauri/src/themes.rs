@@ -34,6 +34,7 @@ const BUNDLED: &[(&str, &str)] = &[
     ("classic-paper", include_str!("../themes/classic-paper.toml")),
     ("dark-academia", include_str!("../themes/dark-academia.toml")),
     ("ia-writer", include_str!("../themes/ia-writer.toml")),
+    ("ia-writer-dark", include_str!("../themes/ia-writer-dark.toml")),
     ("terminal-amber", include_str!("../themes/terminal-amber.toml")),
     ("cyberpunk-green", include_str!("../themes/cyberpunk-green.toml")),
     ("gruvbox-light", include_str!("../themes/gruvbox-light.toml")),

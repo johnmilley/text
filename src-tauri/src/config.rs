@@ -24,6 +24,9 @@ const HEADER: &str = r#"# text — config
 #   line_numbers  show a line-number gutter in the editor (off by default)
 #   highlight_line subtly tint the cursor's line (on by default)
 #   vim_mode      modal editing via codemirror-vim
+#   single_line_breaks  render every newline as a line break in the preview /
+#                 exported HTML (wysiwyg), instead of joining wrapped lines
+#                 into one paragraph (CommonMark default)
 #   root          last opened notes folder (managed by the app)
 #   recent_roots  folder-switcher history (managed by the app)
 #   pinned_roots  folders kept at the top of the switcher (pin/unpin there)
@@ -32,6 +35,10 @@ const HEADER: &str = r#"# text — config
 #   image_dir     where dropped/pasted images land, relative to the root
 #                 ("" = the root itself)
 #   sidebar_right put the sidebar on the right edge instead of the left
+#   zen_sidebar   keep the file sidebar visible in zen / fullscreen mode
+#   zen_typewriter  typewriter scrolling in zen mode (the cursor line holds a
+#                 fixed spot on screen as you type)
+#   typewriter_anchor  where that line sits: "top" (upper third) or "center"
 #
 # [keys] rebinds the app shortcuts. Format: modifiers + key, e.g.
 # "ctrl+shift+f", "ctrl+,", "alt+d". Modifiers: ctrl, shift, alt.
@@ -56,6 +63,9 @@ pub struct Config {
     /// subtly tint the line the cursor is on
     pub highlight_line: bool,
     pub vim_mode: bool,
+    /// render each single newline as a line break (wysiwyg) instead of the
+    /// CommonMark default of joining wrapped lines into one paragraph
+    pub single_line_breaks: bool,
     /// last opened notes folder
     pub root: Option<String>,
     /// recently opened folders, newest first (for the folder switcher)
@@ -70,6 +80,12 @@ pub struct Config {
     pub sidebar_width: u16,
     /// put the sidebar on the right edge instead of the left
     pub sidebar_right: bool,
+    /// keep the file sidebar visible in zen / fullscreen mode
+    pub zen_sidebar: bool,
+    /// typewriter scrolling in zen mode (cursor line holds a fixed screen spot)
+    pub zen_typewriter: bool,
+    /// where the typewriter line sits: "top" (upper third) or "center"
+    pub typewriter_anchor: String,
     /// app-level shortcut overrides: action -> "ctrl+shift+x" style combo
     pub keys: BTreeMap<String, String>,
 }
@@ -125,6 +141,7 @@ impl Default for Config {
             line_numbers: false,
             highlight_line: true,
             vim_mode: false,
+            single_line_breaks: false,
             root: None,
             recent_roots: vec![],
             pinned_roots: vec![],
@@ -132,6 +149,9 @@ impl Default for Config {
             image_dir: "".into(),
             sidebar_width: 240,
             sidebar_right: false,
+            zen_sidebar: false,
+            zen_typewriter: true,
+            typewriter_anchor: "top".into(),
             keys: default_keys(),
         }
     }

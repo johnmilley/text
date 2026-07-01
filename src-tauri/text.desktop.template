@@ -1,0 +1,9 @@
+[Desktop Entry]
+Categories=Utility;TextEditor;
+{{#if comment}}Comment={{comment}}{{/if}}
+Exec={{exec}}
+StartupWMClass=text
+Icon=com.johnathan.text
+Name={{name}}
+Terminal=false
+Type=Application

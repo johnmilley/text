@@ -1,0 +1,26 @@
+# text — iA Writer Dark: the signature minimalist look, inverted. Near-black
+# paper, warm grey ink, one calm blue accent. See text-dark.toml for tokens.
+
+name = "iA Writer Dark"
+dark = true
+
+[colors]
+bg = "#1a1a1a"
+bg-panel = "#202020"
+bg-hover = "#2a2a2a"
+fg = "#cfcfcf"
+fg-muted = "#6f6f6f"
+accent = "#5c9cdb"
+heading = "#f2f2f2"
+link = "#5c9cdb"
+tag = "#8a8a8a"
+quote = "#8f8f8f"
+code = "#bdbdbd"
+code-bg = "#222222"
+border = "#2c2c2c"
+cursor = "#5c9cdb"
+selection = "#27384a"
+
+[fonts]
+editor = "ui-monospace, 'JetBrains Mono', 'Fira Code', 'DejaVu Sans Mono', monospace"
+ui = "system-ui, sans-serif"

@@ -784,8 +784,11 @@ function renderTabs() {
       const el = document.createElement("div");
       el.className = "tab" + (i === active ? " current" : "");
       if (i === active && dirty) el.classList.add("dirty");
+      // a file opened from outside the folder is a "visitor" — styled apart so
+      // it's clear it isn't part of the tree
+      if (t.path && isExternalPath(t.path)) el.classList.add("external");
       el.dataset.i = String(i);
-      if (t.path) el.title = rel(t.path);
+      if (t.path) el.title = isExternalPath(t.path) ? t.path : rel(t.path);
       const label = document.createElement("span");
       label.className = "tab-label";
       label.textContent = t.path ? tabName(t.path) : "new tab";
@@ -1839,6 +1842,109 @@ async function onFsChanged(paths: string[]) {
   }
 }
 
+// curated shortcuts shown inline on the new-tab page, so they're absorbed
+// passively over time. (action id, label) — combos come from the live config.
+const WELCOME_KEYS: [string, string][] = [
+  ["new_note", "new note"],
+  ["quick_switch", "quick switch"],
+  ["search", "search everywhere"],
+  ["open_file", "open a file"],
+  ["new_tab", "new tab"],
+  ["zen", "zen mode"],
+  ["config", "settings"],
+  ["shortcuts", "all shortcuts"],
+];
+
+/** (Re)build the new-tab / welcome screen shown whenever a tab has no file.
+ * Context-aware: with no folder open it offers open-folder / open-file; with a
+ * folder open it adds quick actions, recent files, and a shortcut cheatsheet.
+ * A `_newtab.md` at the folder root overrides the body with rendered markdown. */
+async function renderWelcome() {
+  const host = $("#welcome");
+
+  // custom new-tab page: a _newtab.md at the folder root, rendered as markdown
+  const custom = root && allFiles.find((f) => f.rel === "_newtab.md");
+  if (custom) {
+    try {
+      const { content } = await api.readFile(custom.path);
+      const html = await api.renderPreview(content);
+      const box = document.createElement("div");
+      box.className = "welcome-box welcome-custom";
+      box.innerHTML = html;
+      host.replaceChildren(box);
+      return;
+    } catch {
+      // unreadable — fall through to the default screen
+    }
+  }
+
+  const box = document.createElement("div");
+  box.className = "welcome-box";
+  const h1 = document.createElement("h1");
+  h1.textContent = "text";
+  const tag = document.createElement("p");
+  tag.textContent = root ? rel(root) || (root.split("/").pop() ?? root) : "a plain editor for a folder of plain files";
+  box.append(h1, tag);
+
+  // primary actions
+  const actions = document.createElement("div");
+  actions.className = "welcome-actions";
+  const btn = (label: string, run: () => void) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.addEventListener("click", run);
+    actions.appendChild(b);
+  };
+  if (root) {
+    btn("new note", () => void newNote());
+    btn("open file", () => void openLooseFile());
+    btn("switch folder", () => void switchFolder());
+  } else {
+    btn("open folder", () => void chooseFolder());
+    btn("open file", () => void openLooseFile());
+  }
+  box.appendChild(actions);
+
+  // recent files (only meaningful with a folder open)
+  if (root) {
+    const recents = recentFiles()
+      .filter((p) => p !== currentPath && allFiles.some((f) => f.path === p))
+      .slice(0, 6);
+    if (recents.length) {
+      const head = document.createElement("p");
+      head.className = "welcome-sub";
+      head.textContent = "recent";
+      const list = document.createElement("div");
+      list.className = "welcome-recent";
+      for (const p of recents) {
+        const a = document.createElement("button");
+        a.className = "welcome-file";
+        a.textContent = tabName(p);
+        a.title = rel(p);
+        a.addEventListener("click", () => void openFile(p));
+        list.appendChild(a);
+      }
+      box.append(head, list);
+    }
+  }
+
+  // shortcut cheatsheet — combos reflect any rebindings
+  const keys = document.createElement("div");
+  keys.className = "welcome-keys-grid";
+  for (const [id, label] of WELCOME_KEYS) {
+    const a = ACTIONS.find((x) => x.id === id);
+    if (!a) continue;
+    const kbd = document.createElement("kbd");
+    kbd.textContent = prettyCombo(effectiveCombo(a));
+    const span = document.createElement("span");
+    span.textContent = label;
+    keys.append(kbd, span);
+  }
+  box.appendChild(keys);
+
+  host.replaceChildren(box);
+}
+
 /** Clear the live views without touching the tab record. */
 function showEmptyTab() {
   currentPath = null;
@@ -1850,6 +1956,7 @@ function showEmptyTab() {
   hideTableView();
   editor.openDoc("", "untitled.md");
   $("#welcome").style.display = "";
+  void renderWelcome();
   setCurrentRow(null);
   updateStatus();
   refreshPreview();
@@ -2296,10 +2403,22 @@ async function pickEditorFont() {
 // and typewriter scrolling (cursor line stays mid-screen)
 let zen = false;
 
+/** Push the live zen state + zen-related config onto the DOM and editors.
+ * Called both when toggling zen and when its settings change while zen is on. */
+function applyZen() {
+  const anchor: "top" | "center" = config.typewriter_anchor === "center" ? "center" : "top";
+  const tw = zen && config.zen_typewriter;
+  document.body.classList.toggle("zen", zen);
+  document.body.classList.toggle("zen-tw", tw);
+  document.body.classList.toggle("zen-tw-top", tw && anchor === "top");
+  document.body.classList.toggle("zen-sidebar", zen && config.zen_sidebar);
+  editor.setTypewriter(tw, anchor);
+  editor2?.setTypewriter(tw, anchor);
+}
+
 async function toggleZen() {
   zen = !zen;
-  document.body.classList.toggle("zen", zen);
-  editor.setTypewriter(zen);
+  applyZen();
   try {
     await getCurrentWindow().setFullscreen(zen);
   } catch {
@@ -2451,6 +2570,7 @@ async function applyConfigFromDisk() {
   setEditorMargin(config.editor_margin);
   editor.setVim(config.vim_mode);
   editor2?.setVim(config.vim_mode);
+  api.setSingleLineBreaks(config.single_line_breaks);
   applyEditorView();
   $("#sidebar").style.width = `${config.sidebar_width}px`;
   applySidebarSide();
@@ -2492,8 +2612,13 @@ function openSettingsPanel() {
       editor.setVim(config.vim_mode);
       editor2?.setVim(config.vim_mode);
     },
+    applySingleLineBreaks: () => {
+      api.setSingleLineBreaks(config.single_line_breaks);
+      refreshPreview(); // re-render the open preview with the new break behaviour
+    },
     applyEditorView,
     applySidebarSide,
+    applyZen,
     openDemo: () => void openDemoNote(),
     pickTheme: () => void pickTheme(),
     pickFont: () => void pickEditorFont(),
@@ -2533,6 +2658,7 @@ async function openRoot(path: string) {
   }
   await refreshTree();
   invalidateNotesMeta();
+  if (!currentPath) void renderWelcome(); // empty screen reflects the new folder
   await api.watchRoot(path);
   const recents = [path, ...config.recent_roots.filter((r) => r !== path)].slice(0, 10);
   if (config.root !== path || recents.join("\n") !== config.recent_roots.join("\n")) {
@@ -2583,6 +2709,21 @@ async function chooseFolder() {
   await openRoot(chosen);
   if (!currentPath) await openFirstFile();
 }
+
+/** Open any file from disk into a tab, leaving the open folder as-is. The file
+ * need not live under that folder — read_file/write_file work on any path, so
+ * this is the "plain notepad" half of the app. A file outside the folder opens
+ * as a visitor tab (styled apart in renderTabs) and never joins the tree. With
+ * a folder open it lands in a new tab; with none, it opens standalone. */
+async function openLooseFile() {
+  const chosen = await openDialog({ title: "Open file" });
+  if (typeof chosen !== "string") return;
+  if (root) await newTab(chosen);
+  else await openFile(chosen);
+}
+
+/** Is `path` outside the currently open folder (a visitor)? */
+const isExternalPath = (path: string) => !!root && !path.startsWith(root + "/");
 
 /** Quick switcher over recently opened folders (personal / work / projects).
  * Pinned folders sort to the top and persist even after they age out of the
@@ -2635,6 +2776,7 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "new_note", combo: "ctrl+n", what: "new note", run: () => void newNote() },
   { id: "new_folder", combo: "ctrl+shift+n", what: "new folder", run: () => void newFolder() },
   { id: "open_folder", combo: "ctrl+o", what: "open / switch folder…", run: () => void switchFolder() },
+  { id: "open_file", combo: "alt+o", what: "open a file (keeps the folder)", run: () => void openLooseFile() },
   { id: "switch_folder", combo: "ctrl+shift+o", what: "switch between recent folders", run: () => void switchFolder() },
   { id: "search", combo: "ctrl+shift+f", what: "search everywhere", run: () => showPane("search") },
   { id: "backlinks", combo: "ctrl+shift+b", what: "backlinks", run: () => showPane("links") },
@@ -2954,7 +3096,6 @@ async function init() {
     if (pane2Dirty) void savePane2();
   });
 
-  $("#btn-open-folder").addEventListener("click", () => void chooseFolder());
   $("#folder-name").addEventListener("click", () => void switchFolder());
   $("#btn-new-note").addEventListener("click", () => void newNote());
   $("#btn-new-folder").addEventListener("click", () => void newFolder());
@@ -3077,6 +3218,7 @@ async function init() {
   });
 
   renderTabs();
+  void renderWelcome(); // context-aware new-tab screen (rebuilt once a file opens)
 
   // init params come from the backend: CLI args for the main window
   // (`text <file|dir>`), or the hand-over to new-window / detached tabs.
