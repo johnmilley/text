@@ -92,9 +92,13 @@ const cmTheme = EditorView.theme({
     lineHeight: "1.65",
   },
   ".cm-content": {
-    // margin-driven, not a fixed column: small margins by default so wide
-    // data fits — size the window for prose. Zen mode centers a column.
+    // a measured column, centered when the pane is wider: --line-width caps
+    // the text (100vw = fill the pane) and --editor-margin is the minimum
+    // breathing room at the edges. max-width includes the side padding —
+    // .cm-content is border-box — hence the calc.
     padding: "28px var(--editor-margin, 24px) 50vh",
+    maxWidth: "calc(var(--line-width, 100vw) + 2 * var(--editor-margin, 24px))",
+    margin: "0 auto",
     caretColor: "var(--cursor)",
   },
   "&.cm-focused": { outline: "none" },

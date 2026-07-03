@@ -1,6 +1,8 @@
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::time::UNIX_EPOCH;
 
 /// Extensions we treat as text without looking at the file — a fast path for
@@ -34,10 +36,34 @@ pub fn is_text_file(path: &Path) -> bool {
     }
 }
 
+/// Sniff verdicts keyed by path → (mtime, size, is_text). The tree re-walks on
+/// every watcher event (each autosave triggers one), and sniffing costs an open
+/// + 8 KiB read per unknown-extension file — cache until the file changes.
+static SNIFF_CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, u64, bool)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// Peek at a file's first bytes to decide whether it's UTF-8 text: a NUL byte
 /// (or invalid UTF-8) means binary. Keeps unknown-extension binaries out of the
 /// tree while letting any real text file through.
 fn looks_like_text(path: &Path) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    let stamp = (mtime_of(path).unwrap_or(0), meta.len());
+    if let Some(&(mtime, size, verdict)) = SNIFF_CACHE.lock().unwrap().get(path) {
+        if (mtime, size) == stamp {
+            return verdict;
+        }
+    }
+    let verdict = sniff_text(path);
+    SNIFF_CACHE
+        .lock()
+        .unwrap()
+        .insert(path.to_path_buf(), (stamp.0, stamp.1, verdict));
+    verdict
+}
+
+fn sniff_text(path: &Path) -> bool {
     use std::io::Read;
     let Ok(mut file) = fs::File::open(path) else {
         return false;
@@ -162,9 +188,13 @@ fn walk(dir: &Path, depth: usize) -> Result<Vec<Entry>, String> {
     Ok(dirs)
 }
 
+/// Async + spawn_blocking: synchronous commands run on the main thread, and
+/// walking a big vault there freezes the UI (see collect_notes in query.rs).
 #[tauri::command]
-pub fn list_tree(root: String) -> Result<Vec<Entry>, String> {
-    walk(Path::new(&root), 0)
+pub async fn list_tree(root: String) -> Result<Vec<Entry>, String> {
+    tauri::async_runtime::spawn_blocking(move || walk(Path::new(&root), 0))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 pub fn mtime_of(path: &Path) -> Result<u64, String> {

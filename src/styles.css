@@ -460,7 +460,10 @@ button:hover {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 28px 50vh;
+  /* the editor's measure: side padding grows past the minimum margin to
+     center a --line-width column (this element scrolls, so it pads instead
+     of max-width — that keeps the scrollbar on the pane edge) */
+  padding: 24px max(var(--editor-margin, 24px), calc((100% - var(--line-width, 100vw)) / 2)) 50vh;
   font-family: var(--font-editor);
   font-size: var(--editor-font-size, 15px);
   line-height: 1.65;
@@ -1609,7 +1612,9 @@ body.zen .cm-editor {
   font-size: calc(var(--editor-font-size, 15px) * 1.3);
 }
 body.zen .cm-content {
-  max-width: 68ch;
+  /* the configured line width, but never wider than zen's 68ch reading column
+     (min() also neutralizes the 100vw that means "no limit" outside zen) */
+  max-width: calc(min(var(--line-width, 68ch), 68ch) + 2 * var(--editor-margin, 24px));
   margin: 0 auto;
 }
 /* typewriter, centred: lots of room above and below so the cursor line can

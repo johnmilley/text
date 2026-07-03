@@ -18,9 +18,11 @@ const HEADER: &str = r#"# text — config
 #                 Ctrl+0 resets both)
 #   editor_font   CSS font stack for the editor; "" uses the theme's font.
 #                 The "editor_font" key (Ctrl+Shift+E) opens a curated picker.
-#   editor_margin horizontal space (px) between the editor text and the
-#                 window edge. Small by default so wide data fits; size the
-#                 window to taste. Zen mode centers a column regardless.
+#   editor_margin minimum horizontal space (px) between the text and the
+#                 window edge
+#   line_width    longest line, in characters, before text wraps — the column
+#                 centers when the window is wider (0 = fill the window).
+#                 Also applies to the preview pane; zen mode caps at 68.
 #   line_numbers  show a line-number gutter in the editor (off by default)
 #   highlight_line subtly tint the cursor's line (on by default)
 #   vim_mode      modal editing via codemirror-vim
@@ -56,8 +58,11 @@ pub struct Config {
     pub ui_font_size: u16,
     /// editor font stack override; "" = use the theme's editor font
     pub editor_font: String,
-    /// horizontal space (px) between the editor text and the window edge
+    /// minimum horizontal space (px) between the editor text and the window edge
     pub editor_margin: u16,
+    /// longest line in characters before text wraps; the column centers in
+    /// wider windows (0 = fill the window)
+    pub line_width: u16,
     /// show a line-number gutter in the editor
     pub line_numbers: bool,
     /// subtly tint the line the cursor is on
@@ -138,6 +143,7 @@ impl Default for Config {
             ui_font_size: 13,
             editor_font: "".into(),
             editor_margin: 24,
+            line_width: 80,
             line_numbers: false,
             highlight_line: true,
             vim_mode: false,

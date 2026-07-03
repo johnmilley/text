@@ -67,6 +67,18 @@ export function setEditorMargin(px: number) {
   document.documentElement.style.setProperty("--editor-margin", `${px}px`);
 }
 
+/** Cap the text column at `ch` characters, centered when the pane is wider
+ * (0 = fill the pane, the pre-0.2.8 behaviour). 100vw stands in for "no
+ * limit": no pane can be wider than the viewport, and it keeps the editor's
+ * and preview's calc()/max() expressions valid. `ch` resolves against each
+ * pane's own font, so editor and preview measure their own characters. */
+export function setLineWidth(ch: number) {
+  document.documentElement.style.setProperty(
+    "--line-width",
+    ch > 0 ? `${ch}ch` : "100vw",
+  );
+}
+
 export function setFontSize(px: number) {
   document.documentElement.style.setProperty("--editor-font-size", `${px}px`);
 }

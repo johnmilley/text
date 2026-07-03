@@ -60,10 +60,18 @@ fn grep(root: &str, pattern: &regex::Regex) -> Vec<Hit> {
     hits
 }
 
+/// Grep off the main thread — sync commands run on it, and scanning the whole
+/// vault there freezes the UI (see collect_notes in query.rs).
+async fn grep_blocking(root: String, pattern: regex::Regex) -> Result<Vec<Hit>, String> {
+    tauri::async_runtime::spawn_blocking(move || grep(&root, &pattern))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Literal full-text search across the folder. Smartcase: case-insensitive
 /// unless the query contains an uppercase letter.
 #[tauri::command]
-pub fn search_text(root: String, query: String) -> Result<Vec<Hit>, String> {
+pub async fn search_text(root: String, query: String) -> Result<Vec<Hit>, String> {
     if query.trim().is_empty() {
         return Ok(vec![]);
     }
@@ -72,13 +80,13 @@ pub fn search_text(root: String, query: String) -> Result<Vec<Hit>, String> {
         .case_insensitive(case_insensitive)
         .build()
         .map_err(|e| e.to_string())?;
-    Ok(grep(&root, &pattern))
+    grep_blocking(root, pattern).await
 }
 
 /// Find every line in the folder that wikilinks to `target` (a note name
 /// without extension): [[target]], [[target|label]], [[target#heading]].
 #[tauri::command]
-pub fn find_backlinks(root: String, target: String) -> Result<Vec<Hit>, String> {
+pub async fn find_backlinks(root: String, target: String) -> Result<Vec<Hit>, String> {
     if target.trim().is_empty() {
         return Ok(vec![]);
     }
@@ -89,5 +97,5 @@ pub fn find_backlinks(root: String, target: String) -> Result<Vec<Hit>, String> 
     .case_insensitive(true)
     .build()
     .map_err(|e| e.to_string())?;
-    Ok(grep(&root, &pattern))
+    grep_blocking(root, pattern).await
 }

@@ -16,8 +16,11 @@ pub struct WatcherState(pub Mutex<HashMap<String, RecommendedWatcher>>);
 /// affected paths — broadcast to every window; each frontend ignores paths
 /// outside its own root. Used to refresh the tree and detect external edits
 /// to the open file (e.g. Dropbox sync).
+///
+/// Async so the recursive watch setup (one inotify watch per directory) runs
+/// off the main thread — sync commands run on it and would freeze the UI.
 #[tauri::command]
-pub fn watch_root(
+pub async fn watch_root(
     app: AppHandle,
     state: State<'_, WatcherState>,
     root: String,

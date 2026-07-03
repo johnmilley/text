@@ -14,6 +14,7 @@ export interface SettingsHost {
   save(): void;
   applyFontSizes(): void;
   applyMargin(): void;
+  applyLineWidth(): void;
   applyVim(): void;
   /** push the single-line-breaks setting to the renderer + re-render preview */
   applySingleLineBreaks(): void;
@@ -113,6 +114,18 @@ export function openSettings(host: SettingsHost) {
       "sidebar, tabs, dialogs",
     );
     row(
+      "line width",
+      stepper(
+        () => host.config.line_width,
+        (n) => (host.config.line_width = n),
+        0,
+        200,
+        host.applyLineWidth,
+        4,
+      ),
+      "longest line in characters — the column centers in wider windows (0 fills the window)",
+    );
+    row(
       "editor margins",
       stepper(
         () => host.config.editor_margin,
@@ -122,7 +135,7 @@ export function openSettings(host: SettingsHost) {
         host.applyMargin,
         8,
       ),
-      "px between text and window edge — small keeps wide data usable",
+      "minimum px between text and window edge",
     );
 
     const checkbox = (

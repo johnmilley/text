@@ -41,6 +41,8 @@ export interface Config {
   ui_font_size: number;
   editor_font: string;
   editor_margin: number;
+  /** longest line in characters before text wraps; 0 = fill the window */
+  line_width: number;
   line_numbers: boolean;
   highlight_line: boolean;
   vim_mode: boolean;

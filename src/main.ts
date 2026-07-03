@@ -7,7 +7,7 @@ import type { EditorState } from "@codemirror/state";
 import * as api from "./api";
 import "./fonts";
 import { Editor, type NoteRef } from "./editor";
-import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setUiFontSize } from "./theme";
+import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setLineWidth, setUiFontSize } from "./theme";
 import { closeModal, confirmBox, infoBox, pick, type PickerItem, promptText } from "./modal";
 import { openSettings } from "./settings";
 import { bumpPdfZoom, closePdfDoc, initPdfView, isPdfFile, openPdfDoc, resetPdfZoom } from "./pdf";
@@ -58,7 +58,7 @@ const isMain = getCurrentWindow().label === "main";
 
 const isMac = /Mac/i.test(navigator.platform);
 
-const APP_VERSION = "0.2.5";
+const APP_VERSION = "0.2.8";
 
 /** Editor state stashed when a text-file tab is backgrounded. */
 interface TabSnap {
@@ -2568,6 +2568,7 @@ async function applyConfigFromDisk() {
   setUiFontSize(config.ui_font_size);
   setEditorFont(config.editor_font);
   setEditorMargin(config.editor_margin);
+  setLineWidth(config.line_width);
   editor.setVim(config.vim_mode);
   editor2?.setVim(config.vim_mode);
   api.setSingleLineBreaks(config.single_line_breaks);
@@ -2608,6 +2609,7 @@ function openSettingsPanel() {
       setUiFontSize(config.ui_font_size);
     },
     applyMargin: () => setEditorMargin(config.editor_margin),
+    applyLineWidth: () => setLineWidth(config.line_width),
     applyVim: () => {
       editor.setVim(config.vim_mode);
       editor2?.setVim(config.vim_mode);
@@ -2656,16 +2658,20 @@ async function openRoot(path: string) {
     teardownSecondary(); // a new folder starts with no split/preview carried over
     closeCurrent();
   }
-  await refreshTree();
+  const treeReady = refreshTree();
   invalidateNotesMeta();
   if (!currentPath) void renderWelcome(); // empty screen reflects the new folder
-  await api.watchRoot(path);
+  // watcher setup and the config write don't gate anything the user sees —
+  // don't make the first file wait on them (the watcher walk alone can take
+  // a while on a big vault)
+  void api.watchRoot(path).catch((err) => console.error("watch_root failed:", err));
   const recents = [path, ...config.recent_roots.filter((r) => r !== path)].slice(0, 10);
   if (config.root !== path || recents.join("\n") !== config.recent_roots.join("\n")) {
     config.root = path;
     config.recent_roots = recents;
-    await api.saveConfig(config);
+    void api.saveConfig(config);
   }
+  await treeReady;
 }
 
 async function openFirstFile() {
@@ -2678,7 +2684,10 @@ async function openFirstFile() {
   else if (allFiles.length) await openFile(allFiles[0].path);
 }
 
-/** Re-open the main window's tabs from the previous session. */
+/** Re-open the main window's tabs from the previous session. Runs before the
+ * tree has loaded, so the last file appears without waiting for the full vault
+ * walk: tabs open optimistically (activateTab empties one whose file is gone)
+ * and init prunes the rest against the tree once it arrives. */
 async function restoreSession() {
   let saved: (string | null)[] = [];
   try {
@@ -2686,21 +2695,34 @@ async function restoreSession() {
   } catch {
     // unreadable — start fresh
   }
-  const exists = (p: string) => allFiles.some((f) => f.path === p);
   // drop video tabs from older sessions — restoring one would launch the
   // system player at startup (videos no longer open in-app)
-  let paths = saved.filter((p): p is string => !!p && exists(p) && !isVideoFile(p));
+  let paths = saved.filter((p): p is string => !!p && !isVideoFile(p));
   if (!paths.length) {
     const last = localStorage.getItem("text.lastFile");
-    paths = last && exists(last) ? [last] : [];
+    paths = last && !isVideoFile(last) ? [last] : [];
   }
-  if (!paths.length) return openFirstFile();
+  if (!paths.length) return;
   tabs = paths.map((p) => blankTab(p));
   active = Math.min(
     Math.max(Number(localStorage.getItem("text.activeTab")) || 0, 0),
     tabs.length - 1,
   );
   await activateTab();
+}
+
+/** Drop background tabs whose files vanished while the app was closed —
+ * runs once the tree is in (the active tab already emptied itself if its
+ * open failed). Visitor tabs (outside the root) stay: the tree can't vouch
+ * for them either way. */
+function pruneDeadTabs() {
+  const gone = (t: Tab) =>
+    !!t.path && !isExternalPath(t.path) && !allFiles.some((f) => f.path === t.path);
+  if (!tabs.some(gone)) return;
+  const current = tabs[active];
+  tabs = tabs.filter((t) => t === current || !gone(t));
+  active = tabs.indexOf(current);
+  renderTabs();
 }
 
 async function chooseFolder() {
@@ -3227,18 +3249,29 @@ async function init() {
   const startRoot = params?.root ?? config.root;
   if (startRoot) {
     try {
-      await openRoot(startRoot);
+      // the full vault walk (and watcher setup) runs while the first file
+      // opens — on a big folder the walk is most of the old launch delay
+      const rootReady = openRoot(startRoot);
+      rootReady.catch(() => {}); // awaited below; don't surface it twice
       if (params?.file) {
         await api.createFile(params.file).catch(() => {}); // `text newnote.md`
-        await refreshTree();
         await openFile(params.file);
+        await rootReady;
+        await refreshTree(); // the created file may postdate the walk
       } else if (isMain && !params) {
-        await restoreSession();
+        await restoreSession(); // opens the last tabs without the tree
+        await rootReady;
+        pruneDeadTabs();
+        if (!currentPath) await openFirstFile(); // nothing restorable
       } else {
+        await rootReady;
         await openFirstFile();
       }
     } catch {
+      // the folder is gone (unmounted drive, renamed) — back to the welcome
+      // screen, without an issue bar left over from optimistic tab opens
       config.root = null;
+      hideIssue();
     }
   }
 
