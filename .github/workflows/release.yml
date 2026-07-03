@@ -48,7 +48,17 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            libfuse2
+
+      # linuxdeploy (the AppImage bundler tauri-action shells out to) is
+      # itself an AppImage, which needs FUSE to mount at runtime; GitHub's
+      # ubuntu-22.04 runner image no longer ships a working FUSE setup, so
+      # linuxdeploy just fails to launch. Extract-and-run sidesteps FUSE
+      # entirely instead of mounting.
+      - name: Avoid FUSE for AppImage tooling
+        if: matrix.platform == 'ubuntu-22.04'
+        run: echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
 
       - name: Install frontend dependencies
         run: npm ci
