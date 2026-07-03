@@ -23,7 +23,12 @@ jobs:
           - platform: macos-latest # Intel
             args: "--target x86_64-apple-darwin"
           - platform: ubuntu-22.04
-            args: ""
+            # linuxdeploy (the AppImage bundler tauri-action shells out to) is
+            # broken in CI right now — a widely reported, still-open upstream
+            # issue (tauri-apps/tauri#14796, #15106) that FUSE workarounds
+            # don't reliably fix either. .deb and .rpm bundle fine, so skip
+            # AppImage rather than fail the whole Linux build over it.
+            args: "--bundles deb,rpm"
           - platform: windows-latest
             args: ""
     runs-on: ${{ matrix.platform }}
@@ -48,17 +53,7 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf \
-            libfuse2
-
-      # linuxdeploy (the AppImage bundler tauri-action shells out to) is
-      # itself an AppImage, which needs FUSE to mount at runtime; GitHub's
-      # ubuntu-22.04 runner image no longer ships a working FUSE setup, so
-      # linuxdeploy just fails to launch. Extract-and-run sidesteps FUSE
-      # entirely instead of mounting.
-      - name: Avoid FUSE for AppImage tooling
-        if: matrix.platform == 'ubuntu-22.04'
-        run: echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+            patchelf
 
       - name: Install frontend dependencies
         run: npm ci
