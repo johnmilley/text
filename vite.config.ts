@@ -1,10 +1,47 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
+/**
+ * Web-deploy hardening: GitHub Pages can't send HTTP headers, so the CSP
+ * ships as a meta tag — but only in plain-web production builds. Rendered
+ * markdown passes raw HTML through to the preview (a feature, matching the
+ * desktop renderer); with the Dropbox refresh token in localStorage, an
+ * injected <script>/onerror in a note must never execute. script-src 'self'
+ * blocks every inline or remote script. Tauri builds (TAURI_ENV_PLATFORM
+ * set) and dev (HMR needs inline/ws) are left alone.
+ */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'", // themes + CodeMirror inject <style>
+  "img-src 'self' data: blob: https:", // note embeds may point anywhere
+  "media-src 'self' blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://api.dropboxapi.com https://content.dropboxapi.com",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+].join("; ");
+
+const webCsp = (): Plugin => ({
+  name: "web-csp",
+  apply: "build",
+  transformIndexHtml(html) {
+    // @ts-expect-error process is a nodejs global
+    if (process.env.TAURI_ENV_PLATFORM) return html;
+    return html.replace(
+      "<head>",
+      `<head>\n    <meta http-equiv="Content-Security-Policy" content="${CSP}" />`,
+    );
+  },
+});
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  plugins: [webCsp()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
