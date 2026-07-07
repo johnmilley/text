@@ -107,6 +107,66 @@ export function nameOrder(a: string, b: string): number {
   return da ? -1 : 1; // dates group leads
 }
 
+// ------------------------------------------------------------ reading order
+
+/** Folder → note structure: the single source of truth for the table of
+ * contents, the prev/next page order, and the PDF section order. Notes come
+ * before subfolders at every level (root notes read as front matter, folders
+ * as chapters), both in {@link nameOrder}. */
+export interface TocNode {
+  dirs: Map<string, TocNode>;
+  notes: { title: string; out: string }[];
+}
+
+export function buildToc(site: Site): TocNode {
+  const root: TocNode = { dirs: new Map(), notes: [] };
+  for (const f of site.files) {
+    if (!f.note) continue;
+    const out = site.outOf.get(f.rel)!;
+    const parts = f.rel.split("/");
+    let node = root;
+    for (const seg of parts.slice(0, -1)) {
+      let child = node.dirs.get(seg);
+      if (!child) node.dirs.set(seg, (child = { dirs: new Map(), notes: [] }));
+      node = child;
+    }
+    node.notes.push({ title: stemOf(parts[parts.length - 1]), out });
+  }
+  return root;
+}
+
+export const sortedNotes = (node: TocNode) =>
+  [...node.notes].sort((a, b) => nameOrder(a.title, b.title));
+export const sortedDirs = (node: TocNode) =>
+  [...node.dirs.entries()].sort((a, b) => nameOrder(a[0], b[0]));
+
+export interface PageRef {
+  out: string;
+  title: string;
+}
+
+/** Every note page in ToC order — the book's spine. */
+export function readingOrder(site: Site): PageRef[] {
+  const order: PageRef[] = [];
+  const walk = (node: TocNode) => {
+    for (const nt of sortedNotes(node)) order.push({ out: nt.out, title: nt.title });
+    for (const [, child] of sortedDirs(node)) walk(child);
+  };
+  walk(buildToc(site));
+  return order;
+}
+
+/** Where the generated contents page lives: index.html, unless a root
+ * README/index note claimed it — then the first free contents*.html. */
+export function tocPath(site: Site): string {
+  const taken = new Set(site.outOf.values());
+  if (!taken.has("index.html")) return "index.html";
+  for (let n = 0; ; n++) {
+    const p = n === 0 ? "contents.html" : `contents-${n}.html`;
+    if (!taken.has(p)) return p;
+  }
+}
+
 // ------------------------------------------------------------ gather + build
 
 /** Flatten the sidebar tree into source files (notes + copyable assets). */

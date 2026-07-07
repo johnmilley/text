@@ -1,16 +1,39 @@
-/* text — shared-site stylesheet. Light by default, dark via the system
-   preference; the ◐ button overrides either way (data-theme on <html>).
-   Code colors live in --hl-* tokens so highlighting follows the toggle. */
+/* text — export stylesheet (publish v2).
+ *
+ * Textbook rules: one centered column of serif text at a comfortable
+ * measure, restrained color, navigation that stays out of the way. The same
+ * sheet drives the HTML site and the PDF (print) output.
+ *
+ * Every design decision is a token below. To restyle an export, put an
+ * `_export.css` file in the folder you publish and override tokens there —
+ * it loads after this sheet. See docs/EXPORT_STYLE.md for the guide.
+ */
 
 :root {
-  --bg: #fcfcfb;
-  --bg-panel: #f5f5f3;
-  --fg: #1f2428;
-  --fg-muted: #6b7480;
-  --accent: #0b66c2;
-  --border: #e3e4e6;
-  --code-bg: #f2f2f0;
+  /* ---- page ---- */
+  --paper: #ffffff;         /* page background */
+  --ink: #1c2024;           /* body text */
+  --muted: #5b6470;         /* captions, running heads, secondary text */
+  --accent: #17569b;        /* links; used nowhere else */
+  --rule: #d8dbdf;          /* hairlines: heading rules, table borders */
+  --code-bg: #f4f5f6;
 
+  /* ---- images ---- */
+  --image-bg: transparent;  /* matte behind images (e.g. #fff for
+                               transparent PNGs of dark diagrams) */
+  --image-pad: 0px;         /* breathing room inside the matte */
+
+  /* ---- type ---- */
+  --font-text: "Charter", "Iowan Old Style", "Palatino Linotype", Georgia,
+    Cambria, "Times New Roman", serif;
+  --font-heading: var(--font-text);
+  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo,
+    Consolas, monospace;
+  --text-size: 18px;
+  --line-height: 1.65;
+  --measure: 65ch;          /* column width */
+
+  /* ---- code highlighting (highlight.js maps onto these) ---- */
   --hl-fg: #24292e;
   --hl-keyword: #d73a49;
   --hl-title: #6f42c1;
@@ -27,15 +50,14 @@
 }
 
 /* dark palette, twice: once for system-dark (unless overridden to light),
-   once for the explicit dark override */
+   once for the explicit dark override from the ◐ toggle */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #16181c;
-    --bg-panel: #1c1f24;
-    --fg: #d6d9de;
-    --fg-muted: #8a919b;
-    --accent: #80aede;
-    --border: #2a2e34;
+    --paper: #17191d;
+    --ink: #d5d8dd;
+    --muted: #8a919b;
+    --accent: #7fadde;
+    --rule: #2b2f35;
     --code-bg: #1e2126;
 
     --hl-fg: #c9d1d9;
@@ -54,12 +76,11 @@
   }
 }
 :root[data-theme="dark"] {
-  --bg: #16181c;
-  --bg-panel: #1c1f24;
-  --fg: #d6d9de;
-  --fg-muted: #8a919b;
-  --accent: #80aede;
-  --border: #2a2e34;
+  --paper: #17191d;
+  --ink: #d5d8dd;
+  --muted: #8a919b;
+  --accent: #7fadde;
+  --rule: #2b2f35;
   --code-bg: #1e2126;
 
   --hl-fg: #c9d1d9;
@@ -79,198 +100,215 @@
 
 * { box-sizing: border-box; }
 
+html { scroll-behavior: smooth; }
+
 body {
   margin: 0;
-  display: flex;
   min-height: 100vh;
-  background: var(--bg);
-  color: var(--fg);
-  font: 17px/1.7 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-text);
+  font-size: var(--text-size);
+  line-height: var(--line-height);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* ------------------------------------------------------------ controls */
+/* --------------------------------------------------------- running head */
+/* a slim sticky bar: breadcrumb trail (first crumb is always the contents
+   page — the way back is never more than one tap) and the theme toggle */
 
-#theme-toggle {
-  position: fixed;
-  top: 12px;
-  right: 14px;
-  z-index: 10;
-  cursor: pointer;
-  font: inherit;
-  font-size: 15px;
-  line-height: 1;
-  color: var(--fg-muted);
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 6px 9px;
-}
-#theme-toggle:hover { color: var(--fg); }
-
-#nav-toggle, #nav-button { display: none; }
-
-/* ------------------------------------------------------------ sidebar */
-
-#sidebar {
-  width: 280px;
-  flex-shrink: 0;
-  padding: 22px 16px 40px;
-  background: var(--bg-panel);
-  border-right: 1px solid var(--border);
-  font-size: 0.85em;
-  overflow-y: auto;
-  max-height: 100vh;
+#topbar {
   position: sticky;
   top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+  padding: 9px 18px;
 }
-.share-name {
-  font-weight: 650;
-  margin-bottom: 12px;
-  font-size: 1.1em;
-  letter-spacing: 0.01em;
-}
-.share-name a { color: var(--fg); text-decoration: none; }
-#sidebar ul { list-style: none; margin: 0; padding-left: 14px; }
-#sidebar > ul { padding-left: 0; }
-#sidebar li { margin: 1px 0; }
-#sidebar a {
-  color: var(--fg-muted);
-  text-decoration: none;
-  display: inline-block;
-  padding: 2px 5px;
-  border-radius: 5px;
-  word-break: break-word;
-}
-#sidebar a:hover { color: var(--fg); background: var(--border); }
-#sidebar a.current { color: var(--accent); font-weight: 600; }
-#sidebar details { margin: 1px 0; }
-#sidebar summary {
-  cursor: pointer;
-  color: var(--fg-muted);
-  padding: 2px 5px;
-  border-radius: 5px;
-  word-break: break-word;
-}
-#sidebar summary:hover { color: var(--fg); }
-
-/* ------------------------------------------------------------ content */
-
-main {
+#crumbs {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  font-size: 0.78em;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#crumbs a { color: var(--muted); text-decoration: none; }
+#crumbs a:hover { color: var(--ink); }
+#crumbs a:first-child { font-weight: 600; }
+#crumbs .sep { margin: 0 6px; opacity: 0.55; }
+#crumbs .here { color: var(--ink); }
+
+#theme-toggle {
+  flex-shrink: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+#theme-toggle:hover { color: var(--ink); }
+
+/* -------------------------------------------------------------- column */
+
+main {
+  max-width: calc(var(--measure) + 64px);
+  margin: 0 auto;
+  padding: 0 32px;
 }
 article {
-  width: 100%;
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: 56px 32px 32px;
-  flex: 1;
-}
-footer {
-  text-align: center;
-  color: var(--fg-muted);
-  font-size: 0.78em;
-  padding: 28px;
+  padding: 40px 0 24px;
 }
 
+/* -------------------------------------------------------------- text */
+
 article h1, article h2, article h3, article h4 {
-  line-height: 1.3;
+  font-family: var(--font-heading);
+  line-height: 1.25;
   letter-spacing: -0.01em;
 }
-article h1 { font-size: 1.75em; margin-top: 0.3em; }
+article h1 { font-size: 1.9em; margin: 0.4em 0 0.6em; }
 article h2 {
-  font-size: 1.35em;
-  margin-top: 1.6em;
-  border-bottom: 1px solid var(--border);
+  font-size: 1.4em;
+  margin-top: 1.7em;
+  border-bottom: 1px solid var(--rule);
   padding-bottom: 0.25em;
 }
-article h3 { font-size: 1.12em; }
+article h3 { font-size: 1.15em; margin-top: 1.5em; }
+article h4 { font-size: 1em; margin-top: 1.4em; }
+
 article p, article li { overflow-wrap: break-word; }
-article a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+article a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
 article img {
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
-  border: 1px solid var(--border);
+  background: var(--image-bg);
+  padding: var(--image-pad);
 }
+
 article blockquote {
-  margin: 1em 0;
-  padding: 0.1em 1.2em;
-  border-left: 3px solid var(--accent);
-  color: var(--fg-muted);
+  margin: 1.2em 0;
+  padding: 0.1em 1.3em;
+  border-left: 2px solid var(--rule);
+  color: var(--muted);
 }
-article hr { border: none; border-top: 1px solid var(--border); margin: 2.2em 0; }
+article hr { border: none; border-top: 1px solid var(--rule); margin: 2.4em 0; }
 
 article code {
-  font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", monospace;
-  font-size: 0.85em;
+  font-family: var(--font-mono);
+  font-size: 0.82em;
   background: var(--code-bg);
-  border-radius: 4px;
+  border-radius: 3px;
   padding: 0.15em 0.4em;
 }
 article pre {
   background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
   padding: 14px 16px;
   overflow-x: auto;
 }
-article pre code { background: none; padding: 0; font-size: 0.82em; line-height: 1.6; }
+article pre code { background: none; padding: 0; font-size: 0.8em; line-height: 1.6; }
 
 article table {
   border-collapse: collapse;
-  margin: 1em 0;
+  margin: 1.2em 0;
   display: block;
   overflow-x: auto;
-  font-size: 0.95em;
+  font-size: 0.92em;
 }
-article th, article td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
-article th { background: var(--bg-panel); }
+article th, article td { border: 1px solid var(--rule); padding: 6px 12px; text-align: left; }
+article th {
+  font-family: var(--font-text);
+  font-weight: 650;
+  border-bottom-width: 2px;
+}
 
 article ul.contains-task-list { list-style: none; padding-left: 1.2em; }
 article input[type="checkbox"] { margin-right: 0.45em; accent-color: var(--accent); }
 
-.broken-link { color: var(--fg-muted); border-bottom: 1px dashed var(--fg-muted); }
-.attachment::before { content: "📎 "; }
+.broken-link { color: var(--muted); border-bottom: 1px dashed var(--muted); }
+.attachment::before { content: "¶ "; color: var(--muted); }
 
-/* generated folder listings */
-.listing { list-style: none; padding: 0; }
-.listing li { padding: 6px 0; border-bottom: 1px solid var(--border); }
-.listing a { text-decoration: none; }
-.listing .dir::before { content: "▸ "; color: var(--fg-muted); }
+/* ------------------------------------------------------------ contents */
+/* the ToC page and per-folder contents pages: the exported tree, linked */
 
-.raw-link { font-size: 0.85em; }
-
-/* giscus comments */
-#comments {
-  width: 100%;
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: 0 32px 32px;
+.toc { list-style: none; margin: 0.4em 0; padding-left: 0; }
+.toc .toc { padding-left: 1.4em; }
+.toc li { margin: 0; }
+.toc a {
+  display: inline-block;
+  padding: 4px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+.toc a:hover { color: var(--accent); }
+.toc .toc-section > a {
+  font-weight: 650;
+  margin-top: 0.5em;
 }
 
+/* -------------------------------------------------------- prev / next */
+
+.pagenav {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  border-top: 1px solid var(--rule);
+  margin-top: 3em;
+  padding: 18px 0 44px;
+  font-size: 0.9em;
+}
+.pagenav a {
+  max-width: 46%;
+  color: var(--ink);
+  text-decoration: none;
+}
+.pagenav a:hover { color: var(--accent); }
+.pagenav .dir {
+  display: block;
+  font-size: 0.72em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.pagenav .next { text-align: right; margin-left: auto; }
+
 /* ------------------------------------------------------------ printing */
-/* print / save-as-PDF: content only, always light, no chrome */
+/* print / save-as-PDF: the same column, chrome removed, always light.
+   The PDF sink builds on these classes (.pdf-title, .pdf-toc, .pdf-page). */
 
 @media print {
   :root, :root[data-theme="dark"] {
-    --bg: #fff;
-    --bg-panel: #fff;
-    --fg: #000;
-    --fg-muted: #444;
+    --paper: #fff;
+    --ink: #000;
+    --muted: #444;
     --accent: #000;
-    --border: #bbb;
+    --rule: #bbb;
     --code-bg: #f4f4f4;
   }
-  body { display: block; font-size: 11pt; }
-  #sidebar, #nav-button, #theme-toggle, footer, #comments { display: none !important; }
-  main { display: block; }
-  article { max-width: none; padding: 0; }
+  body { font-size: 11pt; }
+  #topbar, #theme-toggle, .pagenav { display: none !important; }
+  main { max-width: none; padding: 0; }
+  article { padding: 0; }
   article a { color: #000; }
-  /* show where external links point */
+  /* show where external links point — a printed link is otherwise dead */
   article a[href^="http"]::after {
     content: " (" attr(href) ")";
     font-size: 0.8em;
@@ -281,31 +319,20 @@ article input[type="checkbox"] { margin-right: 0.45em; accent-color: var(--accen
   article h1, article h2, article h3 { break-after: avoid; }
 }
 
-/* ------------------------------------------------------------ small screens */
+.pdf-title {
+  break-after: page;
+  padding-top: 30vh;
+  text-align: center;
+}
+.pdf-title h1 { font-size: 2.3em; border: none; }
+.pdf-title .pdf-date { color: var(--muted); }
+.pdf-toc { break-after: page; }
+.pdf-page { break-after: page; }
 
-@media (max-width: 760px) {
-  body { display: block; }
-  #sidebar {
-    display: none;
-    width: 100%;
-    position: static;
-    max-height: none;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-  #nav-button {
-    display: block;
-    position: fixed;
-    top: 12px;
-    right: 58px;
-    z-index: 10;
-    cursor: pointer;
-    color: var(--fg-muted);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 5px 11px;
-  }
-  #nav-toggle:checked ~ #sidebar { display: block; }
-  article { padding: 56px 20px 20px; }
+/* -------------------------------------------------------- small screens */
+
+@media (max-width: 700px) {
+  main { padding: 0 18px; }
+  article { padding-top: 24px; }
+  body { font-size: calc(var(--text-size) - 1px); }
 }

@@ -8,7 +8,7 @@
 
 import type { TextAPI } from "../types";
 import type { OutputFile } from "./render";
-import { nameOrder, type Site, stemOf } from "./site";
+import { buildToc, readingOrder, type Site, sortedDirs, sortedNotes, type TocNode } from "./site";
 
 export type Progress = (msg: string) => void;
 
@@ -47,48 +47,26 @@ const MIME: Record<string, string> = {
 };
 
 /**
- * Build one self-contained HTML document — every note in nav order, the CSS
- * inlined, images as data URIs, cross-note wikilinks turned into in-document
- * anchors — then hand it to the browser's print dialog (→ "Save as PDF").
+ * Build one self-contained HTML document — title page, linked contents, then
+ * every note in reading order (the same spine the HTML site uses), CSS
+ * inlined, images as data URIs, cross-note links turned into in-document
+ * anchors — and hand it to the browser's print dialog (→ "Save as PDF").
  */
-interface TocNode {
-  dirs: Map<string, TocNode>;
-  notes: { title: string; out: string }[];
-}
-
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/** Folder → note structure for the table of contents (notes only — no assets,
- * no generated listing pages). */
-function buildToc(site: Site): TocNode {
-  const root: TocNode = { dirs: new Map(), notes: [] };
-  for (const f of site.files) {
-    if (!f.note) continue;
-    const out = site.outOf.get(f.rel)!;
-    const parts = f.rel.split("/");
-    let node = root;
-    for (const seg of parts.slice(0, -1)) {
-      let child = node.dirs.get(seg);
-      if (!child) node.dirs.set(seg, (child = { dirs: new Map(), notes: [] }));
-      node = child;
-    }
-    node.notes.push({ title: stemOf(parts[parts.length - 1]), out });
+/** The contents as nested lists of in-document anchors. */
+function tocAnchorsHtml(node: TocNode): string {
+  let out = "<ol class=\"toc\">";
+  for (const nt of sortedNotes(node)) {
+    out += `<li><a href="#${anchorId(nt.out)}">${escapeHtml(nt.title)}</a></li>`;
   }
-  return root;
-}
-
-/** Render the ToC as nested lists and collect the note reading order. */
-function renderToc(node: TocNode, html: string[], order: string[]) {
-  for (const nt of [...node.notes].sort((a, b) => nameOrder(a.title, b.title))) {
-    html.push(`<li><a href="#${anchorId(nt.out)}">${escapeHtml(nt.title)}</a></li>`);
-    order.push(nt.out);
+  for (const [name, child] of sortedDirs(node)) {
+    out += `<li class="toc-section"><span>${escapeHtml(name)}</span>`;
+    out += tocAnchorsHtml(child);
+    out += "</li>";
   }
-  for (const [name, child] of [...node.dirs.entries()].sort((a, b) => nameOrder(a[0], b[0]))) {
-    html.push(`<li class="toc-dir">${escapeHtml(name)}<ul>`);
-    renderToc(child, html, order);
-    html.push("</ul></li>");
-  }
+  return out + "</ol>";
 }
 
 export async function emitPdf(
@@ -97,15 +75,16 @@ export async function emitPdf(
   site: Site,
   title: string,
 ): Promise<void> {
-  // pull the inlined stylesheet out of the generated assets
-  const css = files.find((f) => f.path === "_assets/style.css")?.text ?? "";
+  // inline the generated stylesheets (the user's _export.css included)
+  const css =
+    (files.find((f) => f.path === "_assets/style.css")?.text ?? "") +
+    "\n" +
+    (files.find((f) => f.path === "_assets/custom.css")?.text ?? "");
   const byPath = new Map(files.map((f) => [f.path, f] as const));
 
-  // a front table of contents (folders → note filenames) sets the order; the
-  // generated folder-listing pages and copied assets are left out entirely
-  const tocHtml: string[] = [];
-  const order: string[] = [];
-  renderToc(buildToc(site), tocHtml, order);
+  // the front contents and the section order both come from the shared spine
+  const tocHtml = tocAnchorsHtml(buildToc(site));
+  const order = readingOrder(site).map((p) => p.out);
 
   const parser = new DOMParser();
   const sections: string[] = [];
@@ -139,20 +118,13 @@ export async function emitPdf(
     sections.push(`<section id="${anchorId(out)}" class="pdf-page">${article.innerHTML}</section>`);
   }
 
+  const date = new Date().toISOString().slice(0, 10);
   const docHtml = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
 <style>${css}
-.pdf-page{break-after:page;padding:0 0 2rem}
-.pdf-toc{break-after:page;padding:0 0 2rem}
-.pdf-toc h1{margin-top:0}
-.pdf-toc ul{list-style:none;padding-left:1.2em}
-.pdf-toc > ul{padding-left:0}
-.pdf-toc .toc-dir{font-weight:600;margin-top:.35em}
-.pdf-toc .toc-dir > ul{font-weight:400}
-.pdf-toc a{text-decoration:none}
 main{max-width:none}
-@media print{#sidebar,#nav-button,#theme-toggle{display:none}}
 </style></head><body><main><article>
-<section class="pdf-toc"><h1>${escapeHtml(title)}</h1><h2>Contents</h2><ul>${tocHtml.join("")}</ul></section>
+<section class="pdf-title"><h1>${escapeHtml(title)}</h1><p class="pdf-date">${date}</p></section>
+<section class="pdf-toc"><h2>Contents</h2>${tocHtml}</section>
 ${sections.join("\n")}</article></main></body></html>`;
 
   printViaIframe(docHtml);
