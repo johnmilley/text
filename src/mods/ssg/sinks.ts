@@ -1,10 +1,9 @@
 /**
- * Sinks: where a generated site goes. All three consume the same
+ * Sinks: where a generated site goes. Both consume the same
  * {@link OutputFile}[] from render.ts — they differ only in the destination.
  *
  *   local  → write the tree into a folder the user picks
  *   pdf    → assemble one self-contained page and open the print dialog
- *   pages  → publish to a GitHub repo's gh-pages branch via the REST API
  */
 
 import type { TextAPI } from "../types";
@@ -15,16 +14,7 @@ export type Progress = (msg: string) => void;
 
 const join = (dir: string, rel: string) => `${dir.replace(/\/$/, "")}/${rel}`;
 
-/** UTF-8 string → base64, chunked to avoid call-stack limits on big files. */
-function utf8ToBase64(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let bin = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(bin);
-}
+
 
 // ------------------------------------------------------------ local folder
 
@@ -206,124 +196,4 @@ function printViaIframe(html: string): void {
       setTimeout(() => iframe.remove(), 2000);
     }
   }, 300);
-}
-
-// ------------------------------------------------------------ github pages
-
-export interface PagesOptions {
-  token: string;
-  repo: string; // "owner/name"
-  slug: string; // subdirectory under the site root ("" = root)
-  branch?: string; // default "gh-pages"
-}
-
-export interface PagesResult {
-  url: string;
-  commit: string;
-}
-
-export async function emitPages(
-  app: TextAPI,
-  files: OutputFile[],
-  opts: PagesOptions,
-  progress?: Progress,
-): Promise<PagesResult> {
-  const [owner, repo] = opts.repo.split("/");
-  if (!owner || !repo) throw new Error('repo must be "owner/name"');
-  const branch = opts.branch || "gh-pages";
-  const api = `https://api.github.com/repos/${owner}/${repo}`;
-
-  const gh = async (path: string, init?: RequestInit) => {
-    const res = await app.http(path.startsWith("http") ? path : api + path, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${opts.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        ...(init?.headers ?? {}),
-      },
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`GitHub ${res.status}: ${body.slice(0, 200)}`);
-    }
-    return res;
-  };
-
-  // base commit: the gh-pages tip if it exists, else the repo's default branch
-  progress?.("preparing branch…");
-  let baseSha: string | null = null;
-  let baseTree: string | undefined;
-  const ref = await app.http(`${api}/git/ref/heads/${branch}`, {
-    headers: { Authorization: `Bearer ${opts.token}`, Accept: "application/vnd.github+json" },
-  });
-  if (ref.ok) {
-    baseSha = (await ref.json()).object.sha;
-  } else {
-    const meta = await (await gh("")).json();
-    const def = await (await gh(`/git/ref/heads/${meta.default_branch}`)).json();
-    baseSha = def.object.sha;
-  }
-  if (baseSha) {
-    const commit = await (await gh(`/git/commits/${baseSha}`)).json();
-    baseTree = commit.tree.sha;
-  }
-
-  // one blob per file
-  const prefix = opts.slug ? `${opts.slug.replace(/^\/|\/$/g, "")}/` : "";
-  const tree: { path: string; mode: "100644"; type: "blob"; sha: string }[] = [];
-  let n = 0;
-  for (const f of files) {
-    const content = f.text !== undefined ? utf8ToBase64(f.text) : await app.fs.readBase64(f.copyFrom!);
-    const blob = await (
-      await gh("/git/blobs", {
-        method: "POST",
-        body: JSON.stringify({ content, encoding: "base64" }),
-      })
-    ).json();
-    tree.push({ path: prefix + f.path, mode: "100644", type: "blob", sha: blob.sha });
-    progress?.(`uploading ${++n}/${files.length}…`);
-  }
-
-  progress?.("committing…");
-  const newTree = await (
-    await gh("/git/trees", {
-      method: "POST",
-      body: JSON.stringify({ base_tree: baseTree, tree }),
-    })
-  ).json();
-
-  const commit = await (
-    await gh("/git/commits", {
-      method: "POST",
-      body: JSON.stringify({
-        message: `publish ${opts.slug || repo} from text`,
-        tree: newTree.sha,
-        parents: baseSha ? [baseSha] : [],
-      }),
-    })
-  ).json();
-
-  // create or move the gh-pages ref
-  await gh(`/git/refs/heads/${branch}`, {
-    method: "POST",
-    body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: commit.sha }),
-  }).catch(async () => {
-    await gh(`/git/refs/heads/${branch}`, {
-      method: "PATCH",
-      body: JSON.stringify({ sha: commit.sha, force: true }),
-    });
-  });
-
-  // make sure Pages serves this branch (ignore "already enabled")
-  progress?.("enabling GitHub Pages…");
-  await gh("/pages", {
-    method: "POST",
-    body: JSON.stringify({ source: { branch, path: "/" } }),
-  }).catch(() => {});
-
-  return {
-    url: `https://${owner}.github.io/${repo}/${prefix}`,
-    commit: commit.sha.slice(0, 7),
-  };
 }
