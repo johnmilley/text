@@ -1696,3 +1696,118 @@ body.maximized .grip {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---------------------------------------------------------- web / PWA */
+/* running in a plain browser (mobile PWA): no window border, no window
+   buttons or resize grips — the browser/OS owns that chrome */
+
+body.web {
+  border: none;
+}
+body.web #titlebar-buttons,
+body.web .grip {
+  display: none;
+}
+/* installed to an iPhone home screen the app draws under the status bar /
+   notch; pad the fixed bars into the safe areas */
+body.web #titlebar {
+  padding-top: env(safe-area-inset-top);
+  height: calc(30px + env(safe-area-inset-top));
+}
+body.web #status {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Dropbox connect screen (webboot.ts) — shown before any theme loads, so
+   it uses the :root fallback colors, not theme variables */
+#connect-gate {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+#connect-gate .gate-box {
+  max-width: 26rem;
+  text-align: center;
+}
+#connect-gate h1 {
+  font-size: 28px;
+  letter-spacing: 0.06em;
+  margin: 0 0 8px;
+}
+#connect-gate p {
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.8;
+}
+#connect-gate label {
+  display: block;
+  margin: 16px 0;
+  font-size: 13px;
+  text-align: left;
+}
+#connect-gate input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+}
+#connect-gate button {
+  margin-top: 12px;
+  padding: 10px 22px;
+  font-size: 15px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border, #444);
+  border-radius: 8px;
+  cursor: pointer;
+}
+#connect-gate button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+#connect-gate .gate-error {
+  color: #f7768e;
+  font-size: 13px;
+}
+
+/* phones: the sidebar becomes a drawer over the editor (the ◧ titlebar
+   button and Ctrl+\ still toggle it), pickers get room, targets get bigger */
+@media (max-width: 700px) {
+  body.web #sidebar {
+    position: fixed;
+    top: calc(30px + env(safe-area-inset-top));
+    bottom: 0;
+    left: 0;
+    width: min(85vw, 320px);
+    z-index: 40;
+    border-right: 1px solid var(--border);
+    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35);
+  }
+  body.web #app.sidebar-right #sidebar {
+    left: auto;
+    right: 0;
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.35);
+  }
+  body.web #resizer {
+    display: none;
+  }
+  body.web .modal-box {
+    margin-top: 4vh;
+    width: calc(100vw - 20px);
+    max-height: 72vh;
+  }
+  body.web #tree {
+    font-size: 15px;
+  }
+  body.web .tree-row,
+  body.web .hit-row {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+}

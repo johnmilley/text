@@ -1,10 +1,21 @@
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { EditorState } from "@codemirror/state";
 import * as api from "./api";
+import * as platform from "./platform";
+import {
+  canReveal,
+  closeCurrentWindow,
+  initWindowChrome,
+  isMainWindow,
+  listenFsChanged,
+  onDragDrop,
+  openPath,
+  openUrl,
+  pickFile,
+  pickFolder,
+  revealItemInDir,
+  setFullscreen,
+} from "./platform";
+import { webBootstrap } from "./webboot";
 import "./fonts";
 import { Editor, type NoteRef } from "./editor";
 import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setLineWidth, setUiFontSize } from "./theme";
@@ -54,7 +65,7 @@ let editor: Editor;
 
 // localStorage is shared between windows — only the main window persists
 // its session (tabs, last file); spawned windows are ephemeral.
-const isMain = getCurrentWindow().label === "main";
+const isMain = isMainWindow();
 
 const isMac = /Mac/i.test(navigator.platform);
 
@@ -600,7 +611,9 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
       const dest = entry.is_dir ? entry.path : parentOf(entry.path);
       rest.push([`paste "${copiedEntry.name}"`, () => void pasteInto(dest)]);
     }
-    rest.push(["reveal in file manager", () => void revealItemInDir(entry.path)]);
+    if (canReveal) {
+      rest.push(["reveal in file manager", () => void revealItemInDir(entry.path)]);
+    }
     rest.push(["delete", () => void deleteEntry(entry)]);
   } else if (root) {
     top.push(["new note", () => void newNote()]);
@@ -665,10 +678,7 @@ function buildTextApi(): TextAPI {
       copyFile: (src, dest) => api.copyFile(src, dest),
       createDir: (path) => api.createDir(path),
       createFile: (path) => api.createFile(path),
-      pickDirectory: (opts) =>
-        openDialog({ directory: true, title: opts?.title }).then((p) =>
-          typeof p === "string" ? p : null,
-        ),
+      pickDirectory: (opts) => pickFolder(opts?.title ?? "Choose folder"),
     },
     render: { markdownToHtml: (text) => api.renderPreview(text) },
     notes: { collect: () => collectNotesCached() },
@@ -1049,7 +1059,7 @@ async function detachTab(i: number) {
   } catch (err) {
     return showIssue(`new window failed: ${err}`, [{ label: "ok", run: hideIssue }]);
   }
-  if (emptiesSpawned) return void getCurrentWindow().close();
+  if (emptiesSpawned) return closeCurrentWindow();
   await closeTab(i);
 }
 
@@ -1445,6 +1455,7 @@ async function openFile(path: string) {
     updateStatus();
     void refreshBacklinks();
     refreshPreview();
+    closeSidebarDrawer();
     editor.focus();
   } catch (err) {
     showIssue(String(err), [{ label: "ok", run: hideIssue }]);
@@ -2420,7 +2431,7 @@ async function toggleZen() {
   zen = !zen;
   applyZen();
   try {
-    await getCurrentWindow().setFullscreen(zen);
+    await setFullscreen(zen);
   } catch {
     // fullscreen unavailable — zen still applies in-window
   }
@@ -2726,8 +2737,8 @@ function pruneDeadTabs() {
 }
 
 async function chooseFolder() {
-  const chosen = await openDialog({ directory: true, title: "Open notes folder" });
-  if (typeof chosen !== "string") return;
+  const chosen = await pickFolder("Open notes folder");
+  if (chosen === null) return;
   await openRoot(chosen);
   if (!currentPath) await openFirstFile();
 }
@@ -2738,8 +2749,8 @@ async function chooseFolder() {
  * as a visitor tab (styled apart in renderTabs) and never joins the tree. With
  * a folder open it lands in a new tab; with none, it opens standalone. */
 async function openLooseFile() {
-  const chosen = await openDialog({ title: "Open file" });
-  if (typeof chosen !== "string") return;
+  const chosen = await pickFile("Open file");
+  if (chosen === null) return;
   if (root) await newTab(chosen);
   else await openFile(chosen);
 }
@@ -3007,6 +3018,16 @@ function toggleSidebar() {
   $("#resizer").style.display = hidden ? "" : "none";
 }
 
+/** Narrow web screens show the sidebar as a drawer over the editor. */
+const isPhone = () => !platform.isTauri && window.matchMedia("(max-width: 700px)").matches;
+
+/** On a phone the drawer closes once it has served its purpose. */
+function closeSidebarDrawer() {
+  if (!isPhone()) return;
+  $("#sidebar").style.display = "none";
+  $("#resizer").style.display = "none";
+}
+
 // ---------------------------------------------------------------- resizer
 
 function initResizer() {
@@ -3034,6 +3055,9 @@ function initResizer() {
 // ---------------------------------------------------------------- init
 
 async function init() {
+  // web build: finish OAuth or show the connect screen before anything else
+  if (!platform.isTauri && !(await webBootstrap())) return;
+
   config = await api.loadConfig();
   const themesDir = await api.themesDirPath();
   configFilePath = themesDir.replace(/themes$/, "config.toml");
@@ -3085,31 +3109,16 @@ async function init() {
   // window buttons and resize grips (see tauri.macos.conf.json / windows.rs)
   if (isMac) document.body.classList.add("macos");
 
-  const appWindow = getCurrentWindow();
-  $("#tb-min").addEventListener("click", () => void appWindow.minimize());
-  $("#tb-max").addEventListener("click", () => void appWindow.toggleMaximize());
-  $("#tb-close").addEventListener("click", () => void appWindow.close());
+  // phones start with the drawer closed; ◧ in the titlebar opens it
+  closeSidebarDrawer();
 
-  // edge/corner resize grips (no native decorations); hidden while maximized
-  for (const grip of document.querySelectorAll<HTMLElement>(".grip")) {
-    grip.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      void appWindow.startResizeDragging(
-        grip.dataset.dir as Parameters<typeof appWindow.startResizeDragging>[0],
-      );
-    });
-  }
-  const syncMaximized = async () =>
-    document.body.classList.toggle("maximized", await appWindow.isMaximized());
-  void appWindow.onResized(() => void syncMaximized());
-  void syncMaximized();
-  // flush unsaved edits before the window goes away (autosave is debounced)
-  void appWindow.onCloseRequested(async (event) => {
-    if (!dirty) return;
-    event.preventDefault();
-    await save();
-    void appWindow.destroy();
+  // titlebar buttons + resize grips on desktop; body.web + unload-flush on web
+  initWindowChrome({
+    isDirty: () => dirty || pane2Dirty,
+    save: async () => {
+      if (dirty) await save();
+      if (pane2Dirty) await savePane2();
+    },
   });
   // also flush when the window loses focus — covers app quits that skip
   // close-requested (macOS Cmd+Q) and just plain switching away
@@ -3232,12 +3241,8 @@ async function init() {
     { passive: false },
   );
 
-  await listen<string[]>("fs:changed", (event) => void onFsChanged(event.payload));
-  await getCurrentWebview().onDragDropEvent((event) => {
-    if (event.payload.type === "drop") {
-      void handleFileDrop(event.payload.paths, event.payload.position);
-    }
-  });
+  await listenFsChanged((paths) => void onFsChanged(paths));
+  await onDragDrop((paths, position) => void handleFileDrop(paths, position));
 
   renderTabs();
   void renderWelcome(); // context-aware new-tab screen (rebuilt once a file opens)
