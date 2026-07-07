@@ -15,7 +15,7 @@ import {
 } from "@codemirror/autocomplete";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { LanguageDescription } from "@codemirror/language";
+import { LanguageDescription, codeFolding, foldGutter, foldKeymap } from "@codemirror/language";
 import { vim } from "@replit/codemirror-vim";
 import { baseHighlighting, markdownStyling, toggleCheckboxAt, urlAt, wikilinkAt } from "./mdstyle";
 import { imageEmbeds, type ImageResolver } from "./images";
@@ -109,6 +109,21 @@ const cmTheme = EditorView.theme({
     paddingLeft: "6px",
   },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--fg)" },
+  ".cm-foldGutter .cm-gutterElement": {
+    padding: "0 4px 0 2px",
+    cursor: "pointer",
+    opacity: "0.5",
+  },
+  ".cm-foldGutter .cm-gutterElement:hover": { opacity: "1", color: "var(--fg)" },
+  ".cm-foldPlaceholder": {
+    background: "color-mix(in srgb, var(--accent) 14%, transparent)",
+    border: "none",
+    color: "var(--fg-muted)",
+    borderRadius: "4px",
+    padding: "0 7px",
+    margin: "0 4px",
+    cursor: "pointer",
+  },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--cursor)" },
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground":
     { background: "var(--selection)" },
@@ -279,6 +294,10 @@ export class Editor {
       EditorView.lineWrapping,
       this.lineNos.of(this.lineNumbersOn ? lineNumbers() : []),
       this.activeLine.of(this.highlightLineOn ? highlightActiveLine() : []),
+      // heading sections (and code blocks, lists, …) fold via the language's
+      // fold info; the gutter chevron shows on hover-worthy lines only
+      codeFolding({ placeholderText: "⋯" }),
+      foldGutter(),
       highlightSelectionMatches(),
       autocompletion({ override: [wikiCompletions(cbs.getNotes)], icons: false }),
       keymap.of([
@@ -345,6 +364,7 @@ export class Editor {
         ...defaultKeymap,
         ...historyKeymap,
         ...searchKeymap,
+        ...foldKeymap,
         indentWithTab,
       ]),
       EditorView.domEventHandlers({
