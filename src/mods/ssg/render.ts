@@ -9,6 +9,7 @@
  */
 
 import type { TextAPI } from "../types";
+import { renderMermaidSvg } from "../mermaid";
 import {
   baseOf,
   buildToc,
@@ -97,6 +98,24 @@ function resolveLinks(site: Site, body: HTMLElement, pageOut: string, srcDir: st
   }
 }
 
+/** ```mermaid fences become static SVG — published pages ship no script.
+ * A diagram that fails to parse stays a code block, readable as source. */
+async function inlineMermaid(body: HTMLElement): Promise<void> {
+  for (const code of Array.from(
+    body.querySelectorAll<HTMLElement>("pre > code.language-mermaid"),
+  )) {
+    try {
+      const svg = await renderMermaidSvg(code.textContent ?? "", "neutral");
+      const fig = document.createElement("figure");
+      fig.className = "mermaid-figure";
+      fig.innerHTML = svg;
+      code.parentElement!.replaceWith(fig);
+    } catch {
+      /* leave the fence as-is */
+    }
+  }
+}
+
 async function renderNote(
   app: TextAPI,
   site: Site,
@@ -110,6 +129,7 @@ async function renderNote(
 
   const doc = new DOMParser().parseFromString(html, "text/html");
   resolveLinks(site, doc.body, pageOut, srcDir);
+  await inlineMermaid(doc.body);
 
   const title = stemOf(baseOf(file.rel));
   return assemble(site, title, doc.body.innerHTML, pageOut, nav);

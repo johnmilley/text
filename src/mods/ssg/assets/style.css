@@ -336,3 +336,14 @@ article input[type="checkbox"] { margin-right: 0.45em; accent-color: var(--accen
   article { padding-top: 24px; }
   body { font-size: calc(var(--text-size) - 1px); }
 }
+
+/* ------------------------------------------------------------ diagrams */
+
+.mermaid-figure {
+  margin: 1.4em 0;
+  text-align: center;
+}
+.mermaid-figure svg { max-width: 100%; height: auto; }
+@media print {
+  .mermaid-figure { break-inside: avoid; }
+}

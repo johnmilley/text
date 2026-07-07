@@ -10,5 +10,6 @@ import { ssgMod } from "./ssg";
 import { dataviewMod } from "./dataview";
 import { tocMod } from "./toc";
 import { dailyMod } from "./daily";
+import { mermaidMod } from "./mermaid";
 
-export const MODS: Mod[] = [ssgMod, dataviewMod, tocMod, dailyMod];
+export const MODS: Mod[] = [ssgMod, dataviewMod, tocMod, dailyMod, mermaidMod];
