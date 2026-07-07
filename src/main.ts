@@ -3112,6 +3112,26 @@ async function init() {
   // phones start with the drawer closed; ◧ in the titlebar opens it
   closeSidebarDrawer();
 
+  // phone bottom bar (web only; CSS shows it under 700px): capture first
+  if (!platform.isTauri) {
+    const openDrawer = () => {
+      $("#sidebar").style.display = "";
+    };
+    $("#mb-new").addEventListener("click", () => void newNote());
+    $("#mb-today").addEventListener("click", () => {
+      ACTIONS.find((a) => a.id === "daily_note")?.run();
+    });
+    $("#mb-search").addEventListener("click", () => {
+      openDrawer();
+      showPane("search");
+    });
+    $("#mb-files").addEventListener("click", () => {
+      const open = $("#sidebar").style.display !== "none";
+      if (open) closeSidebarDrawer();
+      else (openDrawer(), showPane("files"));
+    });
+  }
+
   // titlebar buttons + resize grips on desktop; body.web + unload-flush on web
   initWindowChrome({
     isDirty: () => dirty || pane2Dirty,

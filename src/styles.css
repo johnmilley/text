@@ -1776,6 +1776,8 @@ body.web #status {
   font-size: 13px;
 }
 
+#mobile-bar { display: none; }
+
 /* phones: the sidebar becomes a drawer over the editor (the ◧ titlebar
    button and Ctrl+\ still toggle it), pickers get room, targets get bigger */
 @media (max-width: 700px) {
@@ -1809,6 +1811,38 @@ body.web #status {
   body.web .hit-row {
     padding-top: 6px;
     padding-bottom: 6px;
+  }
+
+  /* capture-first bottom bar: the four things a phone is for — new note,
+     today's daily note, search, the file drawer. Thumb-height, safe-area
+     padded; the content column clears it. */
+  body.web #mobile-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+  }
+  body.web #mobile-bar button {
+    flex: 1;
+    padding: 9px 0;
+    font-size: 0.95em;
+    color: var(--fg-chrome);
+    border-radius: 6px;
+  }
+  body.web #mobile-bar button:active {
+    color: var(--fg);
+    background: var(--bg-hover);
+  }
+  body.web #main {
+    padding-bottom: calc(42px + env(safe-area-inset-bottom));
+  }
+  body.web #sidebar {
+    bottom: calc(42px + env(safe-area-inset-bottom));
   }
 }
 
