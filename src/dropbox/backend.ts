@@ -28,6 +28,7 @@ import type {
   WriteResult,
 } from "../api";
 import * as dbx from "./client";
+import * as store from "./store";
 import { loadConfigLocal, saveConfigLocal } from "./config";
 import { isMdName, parseNote } from "./notemeta";
 import { renderPreview, setSingleLineBreaks } from "./render";
@@ -99,13 +100,15 @@ function remember(meta: dbx.FileMetadata, text?: string): void {
   const mtime = dbx.mtimeOf(meta);
   revCache.set(meta.path_lower, { rev: meta.rev, mtime });
   if (text !== undefined && isTextName(meta.name)) {
-    contentCache.set(meta.path_lower, {
+    const row = {
       rev: meta.rev,
       text,
       mtime,
       path: meta.path_display,
       size: meta.size,
-    });
+    };
+    contentCache.set(meta.path_lower, row);
+    void store.putFile({ pathLower: meta.path_lower, ...row });
   }
 }
 
@@ -117,26 +120,37 @@ function forget(pathLower: string): void {
       if (key === pathLower || key.startsWith(prefix)) map.delete(key);
     }
   }
+  void store.deletePrefix(pathLower);
 }
 
 const isFileMeta = (m: dbx.EntryMetadata | null): m is dbx.FileMetadata & { ".tag": "file" } =>
   m !== null && m[".tag"] !== "folder";
 
-/**
- * Make the content cache current for every text file under root (one listing,
- * then only changed files are downloaded), and return them.
- */
-async function ensureTexts(root: string): Promise<CachedText[]> {
-  const rootN = norm(root);
-  const entries = await dbx.listFolderAll(rootN, true);
-  const wanted = entries.filter(
-    (e): e is dbx.FileMetadata & { ".tag": "file" } =>
-      e[".tag"] === "file" &&
-      isTextName(e.name) &&
-      e.size <= SEARCH_MAX_BYTES &&
-      !hasHiddenSegment(relTo(rootN, e.path_display)),
-  );
-  const stale = wanted.filter((f) => contentCache.get(f.path_lower)?.rev !== f.rev);
+const cacheable = (rootN: string, e: dbx.DeltaMetadata): e is dbx.FileMetadata & { ".tag": "file" } =>
+  e[".tag"] === "file" &&
+  isTextName(e.name) &&
+  e.size <= SEARCH_MAX_BYTES &&
+  !hasHiddenSegment(relTo(rootN, e.path_display));
+
+let hydrated: Promise<void> | null = null;
+/** Load the persisted cache into memory once per session. */
+const hydrate = (): Promise<void> =>
+  (hydrated ??= store.loadAllFiles().then((rows) => {
+    for (const r of rows) {
+      if (!contentCache.has(r.pathLower)) {
+        contentCache.set(r.pathLower, {
+          rev: r.rev,
+          text: r.text,
+          mtime: r.mtime,
+          path: r.path,
+          size: r.size,
+        });
+      }
+    }
+  }));
+
+async function downloadStale(files: (dbx.FileMetadata & { ".tag": "file" })[]): Promise<void> {
+  const stale = files.filter((f) => contentCache.get(f.path_lower)?.rev !== f.rev);
   let next = 0;
   const worker = async () => {
     while (next < stale.length) {
@@ -146,9 +160,60 @@ async function ensureTexts(root: string): Promise<CachedText[]> {
     }
   };
   await Promise.all(Array.from({ length: Math.min(6, stale.length) }, worker));
-  return wanted
-    .map((f) => contentCache.get(f.path_lower))
-    .filter((c): c is CachedText => c !== undefined);
+}
+
+/**
+ * Make the content cache current for every text file under root and return
+ * them. Persisted rows (IndexedDB) survive reloads, and a saved list_folder
+ * cursor turns "list the whole vault" into "what changed since last time" —
+ * so after the first full sync, a search costs one delta call and only
+ * changed files are re-downloaded.
+ */
+async function ensureTexts(root: string): Promise<CachedText[]> {
+  const rootN = norm(root);
+  await hydrate();
+
+  const cursor = await store.getCursor(rootN.toLowerCase());
+  let synced = false;
+  if (cursor) {
+    try {
+      const delta = await dbx.listFolderContinue(cursor);
+      for (const e of delta.entries) {
+        if (e[".tag"] === "deleted") {
+          contentCache.delete(e.path_lower);
+          revCache.delete(e.path_lower);
+          void store.deletePrefix(e.path_lower);
+        }
+      }
+      await downloadStale(delta.entries.filter((e) => cacheable(rootN, e)));
+      await store.setCursor(rootN.toLowerCase(), delta.cursor);
+      synced = true;
+    } catch {
+      await store.clearCursor(rootN.toLowerCase()); // expired/invalid → full list
+    }
+  }
+  if (!synced) {
+    const { entries, cursor: fresh } = await dbx.listFolderFull(rootN, true);
+    const wanted = entries.filter((e) => cacheable(rootN, e));
+    // drop rows for files that no longer exist under this root
+    const live = new Set(wanted.map((f) => f.path_lower));
+    const prefix = `${rootN.toLowerCase()}/`;
+    for (const key of contentCache.keys()) {
+      if (key.startsWith(prefix) && !live.has(key)) {
+        contentCache.delete(key);
+        void store.deleteFile(key);
+      }
+    }
+    await downloadStale(wanted);
+    await store.setCursor(rootN.toLowerCase(), fresh);
+  }
+
+  const prefix = `${rootN.toLowerCase()}/`;
+  const out: CachedText[] = [];
+  for (const [key, row] of contentCache) {
+    if (key.startsWith(prefix)) out.push(row);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- backend

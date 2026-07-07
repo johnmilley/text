@@ -128,8 +128,12 @@ export type EntryMetadata = (FileMetadata & { ".tag": "file" }) | FolderMetadata
 export const mtimeOf = (meta: FileMetadata): number =>
   Math.floor(Date.parse(meta.server_modified) / 1000) || 0;
 
-/** files/list_folder with cursor continuation. */
-export async function listFolderAll(path: string, recursive: boolean): Promise<EntryMetadata[]> {
+/** files/list_folder with cursor continuation. The returned cursor can be
+ * fed to {@link listFolderContinue} later to get only what changed since. */
+export async function listFolderFull(
+  path: string,
+  recursive: boolean,
+): Promise<{ entries: EntryMetadata[]; cursor: string }> {
   const out: EntryMetadata[] = [];
   let page = await rpc<ListFolderResult>("files/list_folder", {
     path,
@@ -143,7 +147,28 @@ export async function listFolderAll(path: string, recursive: boolean): Promise<E
     page = await rpc<ListFolderResult>("files/list_folder/continue", { cursor: page.cursor });
     out.push(...page.entries);
   }
-  return out;
+  return { entries: out, cursor: page.cursor };
+}
+
+export const listFolderAll = async (
+  path: string,
+  recursive: boolean,
+): Promise<EntryMetadata[]> => (await listFolderFull(path, recursive)).entries;
+
+/** Changes since a cursor (deltas include DeletedMetadata entries). Throws a
+ * DropboxError tagged "reset" when the cursor has expired — do a full list. */
+export async function listFolderContinue(
+  cursor: string,
+): Promise<{ entries: DeltaMetadata[]; cursor: string }> {
+  const out: DeltaMetadata[] = [];
+  let page: ListFolderResult & { entries: DeltaMetadata[] };
+  let cur = cursor;
+  do {
+    page = await rpc("files/list_folder/continue", { cursor: cur });
+    out.push(...page.entries);
+    cur = page.cursor;
+  } while (page.has_more);
+  return { entries: out, cursor: cur };
 }
 
 interface ListFolderResult {
@@ -151,6 +176,15 @@ interface ListFolderResult {
   cursor: string;
   has_more: boolean;
 }
+
+export interface DeletedMetadata {
+  ".tag": "deleted";
+  name: string;
+  path_display: string;
+  path_lower: string;
+}
+
+export type DeltaMetadata = EntryMetadata | DeletedMetadata;
 
 export async function getMetadata(path: string): Promise<EntryMetadata> {
   return rpc<EntryMetadata>("files/get_metadata", { path });
