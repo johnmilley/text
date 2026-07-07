@@ -194,8 +194,12 @@ async function listTree(root: string): Promise<Entry[]> {
   const dirs = new Map<string, Entry>();
   const top: Entry = { name: "", path: rootN, is_dir: true, mtime: 0, children: [] };
   dirs.set(rootN.toLowerCase(), top);
+  // a recursive list_folder of "/x" includes "/x" itself — that's `top`,
+  // not a child; keeping it would shadow top in the map and orphan the tree
   const visible = entries.filter(
-    (e) => !hasHiddenSegment(relTo(rootN, e.path_display)),
+    (e) =>
+      e.path_lower !== rootN.toLowerCase() &&
+      !hasHiddenSegment(relTo(rootN, e.path_display)),
   );
   for (const e of visible) {
     if (e[".tag"] === "folder") {
