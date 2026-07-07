@@ -1,0 +1,76 @@
+/**
+ * Config for the web build: same shape and defaults as the desktop
+ * config.toml (src-tauri/src/config.rs), stored as JSON in localStorage —
+ * per-browser, like the desktop config is per-machine. `root` holds a
+ * Dropbox folder path ("/Notes") instead of a filesystem one.
+ */
+
+import type { Config } from "../api";
+
+const KEY = "text.config";
+
+const defaultKeys = (): Record<string, string> => ({
+  quick_switch: "ctrl+p",
+  new_note: "ctrl+n",
+  daily_note: "ctrl+shift+d",
+  open_folder: "ctrl+o",
+  switch_folder: "ctrl+shift+o",
+  search: "ctrl+shift+f",
+  backlinks: "ctrl+shift+b",
+  theme: "ctrl+shift+t",
+  editor_font: "ctrl+shift+e",
+  share: "ctrl+shift+s",
+  config: "ctrl+,",
+  shortcuts: "ctrl+/",
+  toggle_sidebar: "ctrl+\\",
+  new_tab: "ctrl+t",
+  close_tab: "ctrl+w",
+  next_tab: "ctrl+tab",
+  prev_tab: "ctrl+shift+tab",
+  new_window: "ctrl+shift+n",
+  split: "ctrl+shift+\\",
+  preview: "ctrl+shift+m",
+  focus_tree: "ctrl+e",
+  calendar: "ctrl+shift+c",
+  zen: "alt+z",
+});
+
+export const defaultConfig = (): Config => ({
+  theme: "text-dark",
+  font_size: 15,
+  ui_font_size: 13,
+  editor_font: "",
+  editor_margin: 24,
+  line_width: 80,
+  line_numbers: false,
+  highlight_line: true,
+  vim_mode: false,
+  single_line_breaks: false,
+  root: null,
+  recent_roots: [],
+  pinned_roots: [],
+  daily_dir: "daily",
+  image_dir: "",
+  sidebar_width: 240,
+  sidebar_right: false,
+  zen_sidebar: false,
+  zen_typewriter: true,
+  typewriter_anchor: "top",
+  keys: defaultKeys(),
+});
+
+export function loadConfigLocal(): Config {
+  const base = defaultConfig();
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return base;
+    const stored = JSON.parse(raw) as Partial<Config>;
+    return { ...base, ...stored, keys: { ...base.keys, ...(stored.keys ?? {}) } };
+  } catch {
+    return base;
+  }
+}
+
+export function saveConfigLocal(config: Config): void {
+  localStorage.setItem(KEY, JSON.stringify(config));
+}

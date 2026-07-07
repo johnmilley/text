@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>text — Dropbox backend test</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; background: #1a1b26; color: #c0caf5; }
+      h1 { font-size: 1.2rem; }
+      fieldset { border: 1px solid #3b4261; border-radius: 6px; margin-bottom: 1rem; }
+      legend { color: #7aa2f7; padding: 0 0.4rem; }
+      input { background: #16161e; color: inherit; border: 1px solid #3b4261; border-radius: 4px; padding: 0.3rem 0.5rem; width: 20rem; max-width: 100%; }
+      button { background: #283457; color: inherit; border: 1px solid #3b4261; border-radius: 4px; padding: 0.3rem 0.8rem; cursor: pointer; margin: 0.15rem; }
+      button:hover { background: #364a82; }
+      pre { background: #16161e; border: 1px solid #3b4261; border-radius: 6px; padding: 0.8rem; white-space: pre-wrap; word-break: break-word; min-height: 8rem; max-height: 60vh; overflow-y: auto; }
+      #status { color: #9ece6a; }
+      label { display: inline-block; margin: 0.2rem 0.5rem 0.2rem 0; }
+    </style>
+  </head>
+  <body>
+    <h1>text — Dropbox backend test (Phase 2)</h1>
+    <div id="status">not connected</div>
+
+    <fieldset>
+      <legend>auth</legend>
+      <label>app key <input id="appkey" placeholder="Dropbox app key" /></label>
+      <button id="connect">Connect (PKCE)</button>
+      <button id="logout">Logout</button>
+      <div style="margin-top: 0.5rem">
+        <label>or paste a generated access token <input id="manualtok" placeholder="sl.u..." /></label>
+        <button id="usetok">Use token</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>vault</legend>
+      <label>root <input id="root" value="" placeholder="/Notes" /></label>
+      <button id="tree">List tree</button>
+      <button id="notes">Collect notes</button>
+      <br />
+      <label>file <input id="file" placeholder="/Notes/daily/2026-07-07.md" /></label>
+      <button id="read">Read</button>
+      <button id="preview">Read + render preview</button>
+      <br />
+      <label>search <input id="query" placeholder="query" /></label>
+      <button id="search">Search</button>
+      <button id="conflict">Conflict round-trip</button>
+    </fieldset>
+
+    <pre id="log">ready.</pre>
+    <script type="module" src="/src/dropbox/testpage.ts"></script>
+  </body>
+</html>

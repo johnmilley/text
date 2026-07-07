@@ -136,6 +136,7 @@ export interface Backend {
 let singleLineBreaks = false;
 export const setSingleLineBreaks = (v: boolean) => {
   singleLineBreaks = v;
+  if (!isTauri) void dropbox().then((m) => m.setSingleLineBreaks(v));
 };
 
 /** The desktop backend: every call is a Tauri command into the Rust core. */
@@ -172,42 +173,20 @@ const tauriBackend: Backend = {
 };
 
 /**
- * The mobile/PWA backend. Filled in by the Dropbox adapter (Phase 2). Until
- * then every method rejects, so a stray web build fails loudly rather than
- * silently losing notes.
+ * The mobile/PWA backend: the Dropbox adapter (src/dropbox/). Loaded lazily
+ * via dynamic import so the desktop app never pulls the Dropbox client or
+ * the client-side markdown renderer into its startup path. Every Backend
+ * method is async, so resolving the module inside each call is transparent.
  */
-const pending = (name: string) => (): never => {
-  throw new Error(`web backend: ${name} not implemented yet (Dropbox adapter pending)`);
-};
-const webBackend: Backend = {
-  listTree: pending("listTree"),
-  readFile: pending("readFile"),
-  readImage: pending("readImage"),
-  writeFile: pending("writeFile"),
-  statMtime: pending("statMtime"),
-  createFile: pending("createFile"),
-  createDir: pending("createDir"),
-  renamePath: pending("renamePath"),
-  copyPath: pending("copyPath"),
-  overwriteBase64: pending("overwriteBase64"),
-  importFile: pending("importFile"),
-  writeBase64: pending("writeBase64"),
-  trashPath: pending("trashPath"),
-  readBase64: pending("readBase64"),
-  writeTextFile: pending("writeTextFile"),
-  copyFile: pending("copyFile"),
-  searchText: pending("searchText"),
-  findBacklinks: pending("findBacklinks"),
-  openWindow: pending("openWindow"),
-  windowInitParams: pending("windowInitParams"),
-  collectNotes: pending("collectNotes"),
-  renderPreview: pending("renderPreview"),
-  listThemes: pending("listThemes"),
-  themesDirPath: pending("themesDirPath"),
-  loadConfig: pending("loadConfig"),
-  saveConfig: pending("saveConfig"),
-  watchRoot: pending("watchRoot"),
-};
+const dropbox = () => import("./dropbox/backend");
+const webBackend = new Proxy({} as Backend, {
+  get:
+    (_target, method: keyof Backend) =>
+    (...args: unknown[]) =>
+      dropbox().then((m) =>
+        (m.dropboxBackend[method] as (...a: unknown[]) => unknown)(...args),
+      ),
+});
 
 /** Tauri v2 injects this on the window; its absence means a plain browser. */
 export const isTauri =
