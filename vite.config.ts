@@ -41,6 +41,10 @@ const webCsp = (): Plugin => ({
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  // GitHub Pages serves the web build from /<repo>/, so plain-web builds use
+  // relative asset URLs; Tauri builds keep the default absolute root.
+  // @ts-expect-error process is a nodejs global
+  base: process.env.TAURI_ENV_PLATFORM ? "/" : "./",
   plugins: [webCsp()],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
