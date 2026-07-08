@@ -1587,10 +1587,22 @@ body.tree-dragging * {
   flex-direction: column;
   gap: 3px;
 }
+.cal-otd-open {
+  text-align: center;
+  padding: 7px 0;
+  border-radius: 5px;
+  background: var(--bg-hover);
+  color: var(--fg);
+  font-weight: 600;
+}
+.cal-otd-open:hover,
+.cal-otd-open:active {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-hover));
+}
 .cal-otd-head {
   color: var(--fg-muted);
   font-size: 0.85em;
-  padding-bottom: 2px;
+  padding: 4px 0 2px;
 }
 .cal-otd-empty {
   color: var(--fg-muted);

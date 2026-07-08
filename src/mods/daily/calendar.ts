@@ -37,6 +37,10 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
   let year = today.getFullYear();
   let month = today.getMonth();
   let sel = today.getDate();
+  // touch has no hover to browse with, so the first tap on a day selects it
+  // (peek) and only a second tap (or the panel's open button) opens it; a mouse
+  // keeps click-to-open, since hovering already previews the day
+  let touchLast = false;
 
   app.ui.info((box) => {
     box.classList.add("calendar-box");
@@ -64,6 +68,14 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
       const [, mo, d] = date.split("-").map(Number);
       const list = host.anniversaries(date);
       panel.replaceChildren();
+
+      // primary action for the selected day — a tap can peek at a day (this
+      // panel) and open it deliberately from here (or by tapping the day again)
+      const open = document.createElement("button");
+      open.className = "cal-otd-open";
+      open.textContent = `${host.hasNote(date) ? "open" : "create"} ${date}`;
+      open.addEventListener("click", () => host.open(date));
+      panel.appendChild(open);
 
       const head2 = document.createElement("div");
       head2.className = "cal-otd-head";
@@ -135,10 +147,23 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
           date +
           (host.hasNote(date) ? "" : " (creates the note)") +
           (others ? ` · ${others} other year${others > 1 ? "s" : ""}` : "");
-        cell.addEventListener("click", () => host.open(date));
-        // pointing at a day selects it, so the "on this day" panel follows
+        cell.addEventListener("pointerdown", (e) => {
+          touchLast = e.pointerType === "touch";
+        });
+        cell.addEventListener("click", () => {
+          // touch has no hover: a tap only SELECTS the day (peek) — it opens
+          // from the panel's "open" button, so browsing never jumps you into a
+          // document. A mouse keeps click-to-open (hover already previews).
+          if (touchLast) {
+            sel = d;
+            render(false);
+          } else {
+            host.open(date);
+          }
+        });
+        // hovering a day selects it (mouse only), so the panel follows the pointer
         cell.addEventListener("mouseenter", () => {
-          if (sel === d) return;
+          if (touchLast || sel === d) return;
           sel = d;
           render(false);
         });
