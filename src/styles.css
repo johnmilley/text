@@ -1776,7 +1776,12 @@ body.web #status {
   font-size: 13px;
 }
 
-#mobile-bar { display: none; }
+/* phone top-bar actions live in the titlebar; desktop keeps its window
+   buttons and the sidebar-footer today/calendar/settings, so hide these
+   until the mobile breakpoint below turns them on for the web build */
+#titlebar-actions {
+  display: none;
+}
 
 /* phones: the sidebar becomes a drawer over the editor (the ◧ titlebar
    button and Ctrl+\ still toggle it), pickers get room, targets get bigger */
@@ -1813,37 +1818,108 @@ body.web #status {
     padding-bottom: 6px;
   }
 
-  /* capture-first bottom bar: the four things a phone is for — new note,
-     today's daily note, search, the file drawer. Thumb-height, safe-area
-     padded; the content column clears it. */
-  body.web #mobile-bar {
+  /* the four things a phone needs live in the top bar now: today, calendar,
+     settings, plus the ◧ drawer toggle. Bigger tap targets than desktop. */
+  body.web #titlebar-actions {
     display: flex;
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 45;
-    background: var(--bg-panel);
-    border-top: 1px solid var(--border);
-    padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+    height: 100%;
+    margin-left: auto;
   }
-  body.web #mobile-bar button {
-    flex: 1;
-    padding: 9px 0;
-    font-size: 0.95em;
+  body.web #titlebar-actions button {
+    width: 40px;
+    height: 100%;
+    border-radius: 0;
+    padding: 0;
     color: var(--fg-chrome);
-    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
-  body.web #mobile-bar button:active {
+  body.web #titlebar-actions button:active {
     color: var(--fg);
     background: var(--bg-hover);
   }
-  body.web #main {
-    padding-bottom: calc(42px + env(safe-area-inset-bottom));
+  /* the actions sit where the (hidden) window buttons would, so the title no
+     longer needs to reserve space for them */
+  body.web #titlebar-title {
+    padding-left: 0;
+    text-align: left;
   }
-  body.web #sidebar {
-    bottom: calc(42px + env(safe-area-inset-bottom));
+  /* fat-finger the drawer toggle */
+  body.web #btn-sidebar {
+    width: 40px;
+    font-size: 17px;
   }
+
+  /* editor spans the full device width — no centered measure column, and
+     slimmer side gutters than the desktop's 24px */
+  body.web #editor-host .cm-content,
+  body.web #editor2-host .cm-content {
+    max-width: 100% !important;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+  body.web #preview-body {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+/* ------------------------------------------ markdown accessory bar (mobile) */
+/* a thumb row that floats on top of the soft keyboard while the editor has
+   focus; mdkeybar.ts positions it with visualViewport and toggles [hidden] */
+
+#md-keybar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 44;
+  display: flex;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  will-change: transform;
+}
+#md-keybar[hidden] {
+  display: none;
+}
+#md-keybar .mk-scroll {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#md-keybar .mk-scroll::-webkit-scrollbar {
+  display: none;
+}
+#md-keybar .mk-btn {
+  flex: 0 0 auto;
+  min-width: 40px;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--fg-chrome);
+  font-family: var(--font-editor);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#md-keybar .mk-btn:active {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+/* the contextual "open link" chip stands out and sits at the left edge */
+#md-keybar .mk-open {
+  gap: 4px;
+  color: var(--link);
+  font-weight: 600;
+}
+#md-keybar .mk-open[hidden] {
+  display: none;
 }
 
 /* ------------------------------------------------------------ mermaid */

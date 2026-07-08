@@ -18,6 +18,7 @@ import {
 import { webBootstrap } from "./webboot";
 import "./fonts";
 import { Editor, type NoteRef } from "./editor";
+import { initMdKeyBar } from "./mdkeybar";
 import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setLineWidth, setUiFontSize } from "./theme";
 import { closeModal, confirmBox, infoBox, pick, type PickerItem, promptText } from "./modal";
 import { openSettings } from "./settings";
@@ -3112,23 +3113,21 @@ async function init() {
   // phones start with the drawer closed; ◧ in the titlebar opens it
   closeSidebarDrawer();
 
-  // phone bottom bar (web only; CSS shows it under 700px): capture first
+  // phone top-bar actions (web only; CSS shows them under 700px). today and
+  // calendar come from the daily-notes mod, so look them up in ACTIONS at
+  // click time — they're registered by loadMods() above.
   if (!platform.isTauri) {
-    const openDrawer = () => {
-      $("#sidebar").style.display = "";
-    };
-    $("#mb-new").addEventListener("click", () => void newNote());
-    $("#mb-today").addEventListener("click", () => {
-      ACTIONS.find((a) => a.id === "daily_note")?.run();
-    });
-    $("#mb-search").addEventListener("click", () => {
-      openDrawer();
-      showPane("search");
-    });
-    $("#mb-files").addEventListener("click", () => {
-      const open = $("#sidebar").style.display !== "none";
-      if (open) closeSidebarDrawer();
-      else (openDrawer(), showPane("files"));
+    const runAction = (id: string) => () => ACTIONS.find((a) => a.id === id)?.run();
+    $("#tb-today").addEventListener("click", runAction("daily_note"));
+    $("#tb-calendar").addEventListener("click", runAction("calendar"));
+    $("#tb-settings").addEventListener("click", () => openSettingsPanel());
+
+    // markdown accessory bar over the soft keyboard, with a contextual
+    // "open →" for following the [[wikilink]] under the caret
+    initMdKeyBar({
+      activeView: () => (focusedPane === 2 && editor2 ? editor2.view : editor.view),
+      openWikilink,
+      enabled: () => window.matchMedia("(pointer: coarse)").matches,
     });
   }
 
