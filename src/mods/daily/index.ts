@@ -11,13 +11,6 @@ import type { Entry } from "../../api";
 import type { Mod, TextAPI } from "../types";
 import { openCalendar } from "./calendar";
 
-const pad = (n: number) => String(n).padStart(2, "0");
-
-function today(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 const dailyDir = (app: TextAPI) => app.config().daily_dir.replace(/^\/+|\/+$/g, "");
 
 async function openDailyFor(app: TextAPI, date: string) {
@@ -86,32 +79,13 @@ export const dailyMod: Mod = {
   id: "daily",
   name: "Daily notes + calendar",
   activate(app: TextAPI) {
-    const openToday = () => void openDailyFor(app, today());
-    const openCal = () => void openDailyCalendar(app);
-
-    app.registerCommand({
-      id: "daily_note",
-      title: "today's daily note",
-      combo: "ctrl+shift+d",
-      run: openToday,
-    });
+    // "today" is reached via quick-capture and the calendar now, so the daily
+    // mod only owns the calendar. Both surface as top-bar icons (main.ts).
     app.registerCommand({
       id: "calendar",
       title: "daily-note calendar",
       combo: "ctrl+shift+c",
-      run: openCal,
-    });
-    app.addToolbarButton({
-      id: "btn-daily",
-      label: "today",
-      title: "Today's daily note (Ctrl+Shift+D)",
-      run: openToday,
-    });
-    app.addToolbarButton({
-      id: "btn-calendar",
-      label: "calendar",
-      title: "Daily-note calendar (Ctrl+Shift+C)",
-      run: openCal,
+      run: () => void openDailyCalendar(app),
     });
   },
 };

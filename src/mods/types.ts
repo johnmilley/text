@@ -49,6 +49,9 @@ export interface ToolbarButtonSpec {
   id: string;
   label: string;
   title?: string;
+  /** Optional inline SVG markup; when set it renders as an icon button in the
+   * file-browser toolbar instead of the text label. */
+  icon?: string;
   run: () => void;
 }
 

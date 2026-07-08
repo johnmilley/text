@@ -57,9 +57,7 @@ body.macos {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  /* keep the centered title actually centered over the buttons:
-     3 window buttons right (84px) minus the sidebar toggle left (28px) */
-  padding-left: 56px;
+  padding: 0 8px;
 }
 #btn-sidebar {
   width: 28px;
@@ -72,6 +70,40 @@ body.macos {
 #btn-sidebar:hover {
   color: var(--fg);
   background: var(--bg-hover);
+}
+/* history nav (‹ ›) + top-bar action icons: same chrome buttons as the window
+   controls, shown on every platform */
+#titlebar-nav,
+#titlebar-actions {
+  display: flex;
+  height: 100%;
+}
+#titlebar-nav button,
+#titlebar-actions button {
+  width: 28px;
+  height: 100%;
+  border-radius: 0;
+  padding: 0;
+  color: var(--fg-chrome);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#titlebar-nav button[hidden],
+#titlebar-actions button[hidden] {
+  display: none;
+}
+#titlebar-nav button:hover,
+#titlebar-actions button:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+#titlebar-nav button:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+#titlebar-actions #tb-editview.active {
+  color: var(--accent);
 }
 #titlebar-buttons {
   display: flex;
@@ -327,19 +359,6 @@ button:hover {
 .hit-empty {
   padding: 10px;
   color: var(--fg-muted);
-}
-
-#sidebar-foot {
-  display: flex;
-  gap: 2px;
-  padding: 5px 8px;
-  border-top: 1px solid var(--border);
-}
-#sidebar-foot button {
-  color: var(--fg-chrome);
-}
-#sidebar-foot button:hover {
-  color: var(--fg);
 }
 
 /* ------------------------------------------------------------- main */
@@ -1657,10 +1676,6 @@ body.macos .grip {
 body.macos #btn-sidebar {
   margin-left: 72px;
 }
-body.macos #titlebar-title {
-  padding-left: 0;
-  padding-right: 100px;
-}
 
 /* ------------------------------------------------- window resize grips */
 /* invisible edge/corner strips that start a native resize drag */
@@ -1776,13 +1791,6 @@ body.web #status {
   font-size: 13px;
 }
 
-/* phone top-bar actions live in the titlebar; desktop keeps its window
-   buttons and the sidebar-footer today/calendar/settings, so hide these
-   until the mobile breakpoint below turns them on for the web build */
-#titlebar-actions {
-  display: none;
-}
-
 /* phones: the sidebar becomes a drawer over the editor (the ◧ titlebar
    button and Ctrl+\ still toggle it), pickers get room, targets get bigger */
 @media (max-width: 700px) {
@@ -1818,37 +1826,26 @@ body.web #status {
     padding-bottom: 6px;
   }
 
-  /* the four things a phone needs live in the top bar now: today, calendar,
-     settings, plus the ◧ drawer toggle. Bigger tap targets than desktop. */
-  body.web #titlebar-actions {
-    display: flex;
-    height: 100%;
-    margin-left: auto;
-  }
+  /* bigger tap targets for the top-bar controls on phones */
+  body.web #btn-sidebar,
+  body.web #titlebar-nav button,
   body.web #titlebar-actions button {
     width: 40px;
-    height: 100%;
-    border-radius: 0;
-    padding: 0;
-    color: var(--fg-chrome);
-    display: flex;
-    align-items: center;
-    justify-content: center;
   }
-  body.web #titlebar-actions button:active {
-    color: var(--fg);
-    background: var(--bg-hover);
-  }
-  /* the actions sit where the (hidden) window buttons would, so the title no
-     longer needs to reserve space for them */
-  body.web #titlebar-title {
-    padding-left: 0;
-    text-align: left;
-  }
-  /* fat-finger the drawer toggle */
   body.web #btn-sidebar {
-    width: 40px;
     font-size: 17px;
+  }
+
+  /* single-pane on phones: preview REPLACES the editor (an edit/preview toggle,
+     not a side-by-side pane), and the split second pane is disabled entirely */
+  body.web #content:has(#preview:not([hidden])) #pane1 {
+    display: none;
+  }
+  body.web #preview {
+    flex: 1;
+  }
+  body.web #pane2 {
+    display: none !important;
   }
 
   /* editor spans the full device width — no centered measure column, and

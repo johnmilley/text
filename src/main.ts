@@ -242,6 +242,17 @@ const hideIssue = () => {
 
 const tableShown = () => !$("#table-view").hidden;
 
+// eye = "show preview" (while editing); pencil = "back to editing" (while previewing)
+const EYE_ICON =
+  '<svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 8s2.6-4.3 7-4.3S15 8 15 8s-2.6 4.3-7 4.3S1 8 1 8z"/><circle cx="8" cy="8" r="1.7"/></svg>';
+const EDIT_ICON =
+  '<svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M3 11.3V13h1.7l7-7L10 4.3z"/><path d="M9.3 5l1.7 1.7" stroke-linecap="round"/></svg>';
+
+const isMarkdownishPath = (p: string): boolean => {
+  const name = p.split("/").pop()!;
+  return isNote(name) || /\.(txt|text)$/i.test(name) || !name.includes(".");
+};
+
 function updateStatus() {
   const shown = focusedPane === 2 && pane2Path ? pane2Path : currentPath;
   const title = shown ? `text — ${rel(shown)}` : "text";
@@ -252,6 +263,22 @@ function updateStatus() {
   tableBtn.textContent = tableShown() ? "edit as text" : "view as table";
   // unsaved-edits dot on the active tab, without rebuilding the tab bar
   document.querySelector("#tabs .tab.current")?.classList.toggle("dirty", dirty);
+
+  // top-bar history + edit/preview, shown only with a note open
+  const t = tab();
+  const back = $<HTMLButtonElement>("#tb-back");
+  const fwd = $<HTMLButtonElement>("#tb-fwd");
+  back.hidden = fwd.hidden = !currentPath;
+  back.disabled = !t.back.length;
+  fwd.disabled = !t.fwd.length;
+  const ev = $("#tb-editview");
+  const canPreview = !!currentPath && isMarkdownishPath(currentPath);
+  ev.hidden = !canPreview;
+  if (canPreview) {
+    ev.innerHTML = previewOn() ? EDIT_ICON : EYE_ICON;
+    ev.title = previewOn() ? "Back to editing (Ctrl+Shift+M)" : "Preview (Ctrl+Shift+M)";
+    ev.classList.toggle("active", previewOn());
+  }
 }
 
 // ---------------------------------------------------------------- file tree
@@ -661,14 +688,16 @@ function buildTextApi(): TextAPI {
     registerBlockRenderer: (spec) =>
       blockRenderRuntime.specs.set(spec.lang.toLowerCase(), spec),
     addToolbarButton: (btn) => {
-      const foot = document.querySelector("#sidebar-foot");
-      if (!foot) return;
+      // mod actions live in the file-browser's top toolbar as icon buttons
+      const row = document.querySelector("#folder-row .row-actions");
+      if (!row) return;
       const el = document.createElement("button");
       el.id = btn.id;
-      el.textContent = btn.label;
+      if (btn.icon) el.innerHTML = btn.icon;
+      else el.textContent = btn.label;
       if (btn.title) el.title = btn.title;
       el.addEventListener("click", btn.run);
-      foot.insertBefore(el, document.querySelector("#btn-config"));
+      row.appendChild(el);
     },
     onStartup: (fn) => modStartupHooks.push(fn),
     fs: {
@@ -1207,6 +1236,7 @@ function ensureEditor2(): Editor {
 }
 
 async function cycleSplit() {
+  if (isPhone()) return; // phones are single-pane — no side-by-side split
   await setSplit(split === "off" ? "v" : split === "v" ? "h" : "off");
 }
 
@@ -2579,7 +2609,10 @@ function openRelTarget(target: string) {
   if (hit) void openFile(hit.path);
 }
 
-const togglePreview = () => setPreview(!previewOn());
+const togglePreview = () => {
+  setPreview(!previewOn());
+  updateStatus(); // refresh the top-bar edit/preview icon
+};
 
 // ---------------------------------------------------------------- demo note
 
@@ -3151,7 +3184,10 @@ async function init() {
       openExternal: (url) => void openUrl(url),
       renderBlocks: renderPreviewBlocks,
     },
-    () => setPreview(false),
+    () => {
+      setPreview(false);
+      updateStatus(); // keep the top-bar edit/preview icon in sync
+    },
   );
 
   // load mods before applyConfigFromDisk → rebindKeys, so their keybindable
@@ -3167,16 +3203,21 @@ async function init() {
   // phones start with the drawer closed; ◧ in the titlebar opens it
   closeSidebarDrawer();
 
-  // phone top-bar actions (web only; CSS shows them under 700px). today and
-  // calendar come from the daily-notes mod, so look them up in ACTIONS at
-  // click time — they're registered by loadMods() above.
-  if (!platform.isTauri) {
-    const runAction = (id: string) => () => ACTIONS.find((a) => a.id === id)?.run();
-    $("#tb-capture").addEventListener("click", () => void quickCapture());
-    $("#tb-today").addEventListener("click", runAction("daily_note"));
-    $("#tb-calendar").addEventListener("click", runAction("calendar"));
-    $("#tb-settings").addEventListener("click", () => openSettingsPanel());
+  // top-bar actions — same icons on desktop and phone. calendar comes from the
+  // daily-notes mod, so look it up in ACTIONS at click time (registered by
+  // loadMods() above).
+  $("#tb-back").addEventListener("click", goBack);
+  $("#tb-fwd").addEventListener("click", goForward);
+  $("#tb-editview").addEventListener("click", togglePreview);
+  $("#tb-capture").addEventListener("click", () => void quickCapture());
+  $("#tb-calendar").addEventListener("click", () => ACTIONS.find((a) => a.id === "calendar")?.run());
+  $("#tb-settings").addEventListener("click", () => openSettingsPanel());
+  $("#tb-settings").addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    void openConfig(); // right-click opens the raw config.toml
+  });
 
+  if (!platform.isTauri) {
     // markdown accessory bar over the soft keyboard, with a contextual
     // "open →" for following the [[wikilink]] under the caret
     initMdKeyBar({
@@ -3287,11 +3328,6 @@ async function init() {
   $("#pane2").addEventListener("mousedown", () => setFocusedPane(2), true);
   $("#pane1").addEventListener("focusin", () => setFocusedPane(1));
   $("#pane2").addEventListener("focusin", () => setFocusedPane(2));
-  $("#btn-config").addEventListener("click", () => openSettingsPanel());
-  $("#btn-config").addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    void openPath(themesDir);
-  });
   for (const b of document.querySelectorAll<HTMLElement>("#sidebar-tabs button")) {
     b.addEventListener("click", () => showPane(b.dataset.tab as never));
   }
