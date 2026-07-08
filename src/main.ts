@@ -3362,6 +3362,13 @@ async function init() {
       console.error("mod startup hook failed:", err);
     }
   }
+
+  // launched from a home-screen "Quick capture" shortcut
+  // (…/text/?action=capture): drop straight into today's note. The param is
+  // left in the URL so every launch of that icon captures again.
+  if (root && new URLSearchParams(location.search).get("action") === "capture") {
+    void quickCapture();
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => void init());
