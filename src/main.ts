@@ -246,7 +246,7 @@ const tableShown = () => !$("#table-view").hidden;
 const EYE_ICON =
   '<svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M1 8s2.6-4.3 7-4.3S15 8 15 8s-2.6 4.3-7 4.3S1 8 1 8z"/><circle cx="8" cy="8" r="1.7"/></svg>';
 const EDIT_ICON =
-  '<svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M3 11.3V13h1.7l7-7L10 4.3z"/><path d="M9.3 5l1.7 1.7" stroke-linecap="round"/></svg>';
+  '<svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M10.8 2.4l2.8 2.8-7.3 7.3-3.3.5.5-3.3z"/><path d="M9.4 3.8l2.8 2.8" stroke-linecap="round"/></svg>';
 
 const isMarkdownishPath = (p: string): boolean => {
   const name = p.split("/").pop()!;
