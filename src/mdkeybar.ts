@@ -39,16 +39,19 @@ function linePrefix(view: EditorView, prefix: string): void {
   const { doc, selection } = view.state;
   const first = doc.lineAt(selection.main.from).number;
   const last = doc.lineAt(selection.main.to).number;
-  const changes: { from: number; to?: number; insert?: string }[] = [];
+  const specs: { from: number; to?: number; insert?: string }[] = [];
   for (let n = first; n <= last; n++) {
     const line = doc.line(n);
     if (line.text.startsWith(prefix)) {
-      changes.push({ from: line.from, to: line.from + prefix.length });
+      specs.push({ from: line.from, to: line.from + prefix.length });
     } else {
-      changes.push({ from: line.from, insert: prefix });
+      specs.push({ from: line.from, insert: prefix });
     }
   }
-  view.dispatch({ changes });
+  // map the caret with assoc +1 so an insertion at the line start pushes it
+  // *after* the marker (ready to type), not behind it
+  const changes = view.state.changes(specs);
+  view.dispatch({ changes, selection: selection.map(changes, 1) });
   view.focus();
 }
 

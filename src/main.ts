@@ -1749,6 +1749,59 @@ function hideTableView() {
   $("#table-view").hidden = true;
 }
 
+// ---------------------------------------------------------------- quick capture
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Today's daily-note path, mirroring the daily mod's layout
+ * (daily_dir/YYYY/MM/YYYY-MM-DD.md). */
+function todayNotePath(d = new Date()): string {
+  const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const dir = config.daily_dir.replace(/^\/+|\/+$/g, "");
+  return `${root}/${dir}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
+}
+
+/** "Jul 8, 9:31 AM" — the capture timestamp. */
+const captureStamp = (d = new Date()): string =>
+  d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/**
+ * Drafts-style quick capture: open (creating if needed) today's daily note and
+ * append a blank line + timestamped bullet at the end, leaving the caret after
+ * "Jul 8, 9:31 AM: " with the keyboard up, ready to type.
+ */
+async function quickCapture(): Promise<void> {
+  if (!root) return;
+  const path = todayNotePath();
+  const date = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+  await api.createDir(path.slice(0, path.lastIndexOf("/")));
+  try {
+    await api.createFile(path); // throws if it already exists
+    await api.writeTextFile(path, `# ${date}\n\n`);
+  } catch {
+    // already there — leave its content alone
+  }
+  if (currentPath !== path) {
+    dirty = false; // don't let openFile's save race the capture insert
+    await openFile(path);
+  }
+  if (currentPath !== path) return; // open failed (issue already shown)
+
+  const view = editor.view;
+  const text = view.state.doc.toString();
+  // ensure exactly one blank line between existing content and the stamp
+  const trailingNls = /\n*$/.exec(text)?.[0].length ?? 0;
+  const lead = text.length === 0 ? "" : "\n".repeat(Math.max(0, 2 - trailingNls));
+  const insert = `${lead}${captureStamp()}: `;
+  const at = view.state.doc.length;
+  view.dispatch({
+    changes: { from: at, insert },
+    selection: { anchor: at + insert.length },
+    scrollIntoView: true,
+  });
+  view.focus();
+}
+
 async function save(): Promise<boolean> {
   if (!currentPath || saving || viewingImage || viewingAudio || viewingPdf)
     return true;
@@ -2808,6 +2861,7 @@ async function switchFolder() {
 const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = [
   { id: "quick_switch", combo: "ctrl+p", what: "quick switch / new note", run: () => void quickSwitch() },
   { id: "new_note", combo: "ctrl+n", what: "new note", run: () => void newNote() },
+  { id: "quick_capture", combo: "ctrl+shift+j", what: "quick capture into today's daily note", run: () => void quickCapture() },
   { id: "new_folder", combo: "ctrl+shift+n", what: "new folder", run: () => void newFolder() },
   { id: "open_folder", combo: "ctrl+o", what: "open / switch folder…", run: () => void switchFolder() },
   { id: "open_file", combo: "alt+o", what: "open a file (keeps the folder)", run: () => void openLooseFile() },
@@ -3118,6 +3172,7 @@ async function init() {
   // click time — they're registered by loadMods() above.
   if (!platform.isTauri) {
     const runAction = (id: string) => () => ACTIONS.find((a) => a.id === id)?.run();
+    $("#tb-capture").addEventListener("click", () => void quickCapture());
     $("#tb-today").addEventListener("click", runAction("daily_note"));
     $("#tb-calendar").addEventListener("click", runAction("calendar"));
     $("#tb-settings").addEventListener("click", () => openSettingsPanel());

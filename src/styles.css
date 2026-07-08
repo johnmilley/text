@@ -1858,6 +1858,10 @@ body.web #status {
     max-width: 100% !important;
     padding-left: 14px !important;
     padding-right: 14px !important;
+    /* iOS Safari auto-zooms when a focused editable renders below 16px; floor
+       the font there so tapping in doesn't zoom (and shove the top bar
+       offscreen), while still honouring a larger configured size */
+    font-size: max(16px, var(--editor-font-size, 15px)) !important;
   }
   body.web #preview-body {
     padding-left: 14px;
