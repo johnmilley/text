@@ -41,6 +41,12 @@ const HEADER: &str = r#"# text — config
 #   zen_typewriter  typewriter scrolling in zen mode (the cursor line holds a
 #                 fixed spot on screen as you type)
 #   typewriter_anchor  where that line sits: "top" (upper third) or "center"
+#   spellcheck    underline misspelled words in the editor (browser/OS dictionary)
+#   preview_replaces_editor  on desktop, markdown preview replaces the editor
+#                 pane instead of showing beside it (phones always replace)
+#   toolbar_capture   show the quick-capture icon in the top bar
+#   toolbar_calendar  show the daily-note calendar icon in the top bar
+#   toolbar_preview   show the edit/preview toggle icon in the top bar
 #
 # [keys] rebinds the app shortcuts. Format: modifiers + key, e.g.
 # "ctrl+shift+f", "ctrl+,", "alt+d". Modifiers: ctrl, shift, alt.
@@ -91,6 +97,16 @@ pub struct Config {
     pub zen_typewriter: bool,
     /// where the typewriter line sits: "top" (upper third) or "center"
     pub typewriter_anchor: String,
+    /// underline misspelled words in the editor (browser/OS dictionary)
+    pub spellcheck: bool,
+    /// on desktop, preview replaces the editor pane instead of a side-by-side split
+    pub preview_replaces_editor: bool,
+    /// show the quick-capture icon in the top bar
+    pub toolbar_capture: bool,
+    /// show the daily-note calendar icon in the top bar
+    pub toolbar_calendar: bool,
+    /// show the edit/preview toggle icon in the top bar
+    pub toolbar_preview: bool,
     /// app-level shortcut overrides: action -> "ctrl+shift+x" style combo
     pub keys: BTreeMap<String, String>,
 }
@@ -158,6 +174,11 @@ impl Default for Config {
             zen_sidebar: false,
             zen_typewriter: true,
             typewriter_anchor: "top".into(),
+            spellcheck: false,
+            preview_replaces_editor: false,
+            toolbar_capture: true,
+            toolbar_calendar: true,
+            toolbar_preview: true,
             keys: default_keys(),
         }
     }

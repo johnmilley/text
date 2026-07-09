@@ -317,6 +317,10 @@ article input[type="checkbox"] { margin-right: 0.45em; accent-color: var(--accen
   }
   article pre, article blockquote, article img, article table { break-inside: avoid; }
   article h1, article h2, article h3 { break-after: avoid; }
+  /* a `---` inside a note reads as a slide break when printing/saving as PDF
+     (see the presentation lesson) — one section per page, border hidden
+     since it'd otherwise sit right at the page edge */
+  article hr { break-after: page; border: none; margin: 0; }
 }
 
 .pdf-title {
@@ -346,4 +350,106 @@ article input[type="checkbox"] { margin-right: 0.45em; accent-color: var(--accen
 .mermaid-figure svg { max-width: 100%; height: auto; }
 @media print {
   .mermaid-figure { break-inside: avoid; }
+}
+
+/* -------------------------------------------------------------- slides */
+/* frontmatter `slides: true` (see render.ts's buildSlideDeck): the note is
+   split into <section class="slide"> at each `---`, and assets/slides.js
+   drives which one is showing — keyboard, click, swipe, fullscreen. A slide
+   deck breaks out of the normal text column to use the full page width. */
+
+body:has(.slide-deck) main {
+  max-width: none;
+  padding: 0;
+}
+body:has(.slide-deck) article {
+  padding: 0;
+}
+.slide-deck {
+  display: flex;
+  flex-direction: column;
+  min-height: 80vh;
+}
+.slide-progress {
+  height: 3px;
+  background: var(--rule);
+  flex-shrink: 0;
+}
+.slide-progress-bar {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s ease;
+}
+.slide-viewport {
+  flex: 1;
+  position: relative;
+  cursor: pointer;
+}
+.slide {
+  display: none;
+  box-sizing: border-box;
+  height: 100%;
+  padding: 6vh 8vw;
+  overflow: auto;
+  font-size: 1.2em;
+}
+.slide.active {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.slide-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px;
+  border-top: 1px solid var(--rule);
+  flex-shrink: 0;
+}
+.slide-controls button {
+  cursor: pointer;
+  font: inherit;
+  font-size: 1.1em;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  line-height: 1;
+}
+.slide-controls button:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+.slide-count {
+  color: var(--muted);
+  font-size: 0.85em;
+  min-width: 5ch;
+  text-align: center;
+}
+.slide-deck:fullscreen,
+.slide-deck:-webkit-full-screen {
+  background: var(--paper);
+  min-height: 100vh;
+  padding: 4vh 0;
+}
+@media print {
+  .slide-progress,
+  .slide-controls {
+    display: none;
+  }
+  .slide-deck {
+    min-height: 0;
+  }
+  .slide {
+    display: flex !important;
+    flex-direction: column;
+    justify-content: center;
+    break-after: page;
+    height: auto;
+    min-height: 90vh;
+  }
 }

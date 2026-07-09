@@ -42,6 +42,9 @@ export interface ContextItemSpec {
   label: string;
   /** Which right-click targets show this item. */
   scope: ContextScope[];
+  /** Further narrows within scope (e.g. by file extension). Omit to show
+   * whenever `scope` matches. */
+  when?: (target: ContextTarget) => boolean;
   run: (target: ContextTarget) => void;
 }
 
@@ -117,6 +120,11 @@ export interface TextAPI {
   openNote(path: string, line?: number): void;
   /** Network access (e.g. the GitHub API). Same signature as `window.fetch`. */
   http: typeof fetch;
+  system: {
+    /** Desktop-only: compile a .tex file with the system's pdflatex, running
+     * it twice so cross-references resolve. Rejects on the web build. */
+    compileLatex(path: string): Promise<{ ok: boolean; pdfPath: string; log: string }>;
+  };
   ui: {
     /** Open a modal; `build` populates its box element. */
     info(build: (box: HTMLElement) => void): void;

@@ -34,6 +34,7 @@ import pageTemplate from "./assets/page.html?raw";
 import siteCss from "./assets/style.css?raw";
 import hljsCss from "./assets/highlight.css?raw";
 import hljsJs from "./assets/highlight.min.js?raw";
+import slidesJs from "./assets/slides.js?raw";
 
 export interface OutputFile {
   path: string; // output rel path
@@ -98,6 +99,58 @@ function resolveLinks(site: Site, body: HTMLElement, pageOut: string, srcDir: st
   }
 }
 
+/** A leading `---` YAML frontmatter block with a top-level `slides: true`
+ * scalar turns a note into a slide deck (see buildSlideDeck below) — the
+ * same flat `key: value` shape query.rs's frontmatter parser reads, kept
+ * local here rather than round-tripping through notes.collect() for every
+ * page in the site. */
+function hasSlidesFlag(text: string): boolean {
+  const m = /^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)\r?\n/.exec(text);
+  return !!m && /^\s*slides\s*:\s*true\s*$/im.test(m[1]);
+}
+
+/** Split rendered content into `<section class="slide">`s at each `<hr>`
+ * (a top-level `---` in the source) and wrap them in the deck chrome that
+ * assets/slides.js drives: progress bar, prev/next, slide count,
+ * fullscreen. Printing/saving-as-PDF still gets one slide per page — see
+ * the `.slide` rule under `@media print` in assets/style.css — independent
+ * of which slide was on screen when it printed. */
+function buildSlideDeck(body: HTMLElement): string {
+  const doc = body.ownerDocument;
+  const slides: HTMLElement[] = [];
+  let current = doc.createElement("section");
+  current.className = "slide";
+  for (const node of Array.from(body.childNodes)) {
+    if (node.nodeType === Node.ELEMENT_NODE && (node as HTMLElement).tagName === "HR") {
+      slides.push(current);
+      current = doc.createElement("section");
+      current.className = "slide";
+      continue;
+    }
+    current.appendChild(node); // moves node out of body — iterating a snapshot, so safe
+  }
+  slides.push(current);
+  slides[0].classList.add("active");
+
+  const deck = doc.createElement("div");
+  deck.className = "slide-deck";
+  const progress = doc.createElement("div");
+  progress.className = "slide-progress";
+  progress.innerHTML = '<div class="slide-progress-bar"></div>';
+  const viewport = doc.createElement("div");
+  viewport.className = "slide-viewport";
+  viewport.append(...slides);
+  const controls = doc.createElement("div");
+  controls.className = "slide-controls";
+  controls.innerHTML =
+    '<button type="button" class="slide-prev" aria-label="previous slide">‹</button>' +
+    '<span class="slide-count"></span>' +
+    '<button type="button" class="slide-next" aria-label="next slide">›</button>' +
+    '<button type="button" class="slide-fullscreen" aria-label="fullscreen">⛶</button>';
+  deck.append(progress, viewport, controls);
+  return deck.outerHTML;
+}
+
 /** ```mermaid fences become static SVG — published pages ship no script.
  * A diagram that fails to parse stays a code block, readable as source. */
 async function inlineMermaid(body: HTMLElement): Promise<void> {
@@ -132,23 +185,31 @@ async function renderNote(
   await inlineMermaid(doc.body);
 
   const title = stemOf(baseOf(file.rel));
-  return assemble(site, title, doc.body.innerHTML, pageOut, nav);
+  const slides = hasSlidesFlag(text);
+  const content = slides ? buildSlideDeck(doc.body) : doc.body.innerHTML;
+  const scripts = slides
+    ? `<script src="${rootPrefix(pageOut)}_assets/slides.js"></script>`
+    : "";
+  return assemble(site, title, content, pageOut, nav, scripts);
 }
 
 /** Fill the page template: breadcrumb running head, content, prev/next.
- * `nav` off (single-note export) leaves only the content and theme toggle. */
+ * `nav` off (single-note export) leaves only the content and theme toggle.
+ * `scripts` is empty for ordinary notes — only a slide deck ships script. */
 function assemble(
   site: Site,
   title: string,
   content: string,
   pageOut: string,
   nav: boolean,
+  scripts = "",
 ): string {
   let out = pageTemplate;
   out = fill(out, "root", rootPrefix(pageOut));
   out = fill(out, "title", htmlEscape(title));
   out = fill(out, "crumbs", nav ? crumbsHtml(site, title, pageOut) : htmlEscape(title));
   out = fill(out, "pagenav", nav ? pagenavHtml(site, pageOut) : "");
+  out = fill(out, "scripts", scripts);
   out = fill(out, "content", content); // last: content may contain "{{...}}"
   return out;
 }
@@ -272,6 +333,9 @@ export async function generateSite(
     { path: "_assets/custom.css", text: custom },
     { path: "_assets/highlight.css", text: hljsCss },
     { path: "_assets/highlight.min.js", text: hljsJs },
+    // only linked from a page that's actually a slide deck (see assemble's
+    // `scripts` param), but cheap enough to always emit alongside the rest
+    { path: "_assets/slides.js", text: slidesJs },
   ];
 
   for (const f of site.files) {

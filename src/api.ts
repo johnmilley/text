@@ -61,6 +61,13 @@ export interface Config {
   zen_typewriter: boolean;
   /** where the typewriter line sits: "top" (upper third) or "center" */
   typewriter_anchor: string;
+  /** underline misspelled words in the editor (browser/OS dictionary) */
+  spellcheck: boolean;
+  /** on desktop, preview replaces the editor pane instead of a side-by-side split */
+  preview_replaces_editor: boolean;
+  toolbar_capture: boolean;
+  toolbar_calendar: boolean;
+  toolbar_preview: boolean;
   keys: Record<string, string>;
 }
 
@@ -223,6 +230,20 @@ export const findBacklinks = (root: string, target: string) =>
 export const openWindow = (root: string | null, file: string | null) =>
   backend.openWindow(root, file);
 export const windowInitParams = () => backend.windowInitParams();
+
+export interface LatexResult {
+  ok: boolean;
+  pdf_path: string;
+  log: string;
+}
+
+/** Desktop-only: compiles a .tex file with the system's pdflatex. No web
+ * equivalent (no filesystem/process access in the browser), so this bypasses
+ * the Backend abstraction rather than needing a no-op on the web side. */
+export const compileLatex = (path: string): Promise<LatexResult> =>
+  isTauri
+    ? invoke<LatexResult>("compile_latex", { path })
+    : Promise.reject(new Error("LaTeX compiling needs the desktop app"));
 
 /** Note metadata (frontmatter, tags, tasks) for dataview query blocks. */
 export const collectNotes = (root: string) => backend.collectNotes(root);

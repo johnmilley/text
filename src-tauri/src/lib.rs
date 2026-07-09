@@ -1,5 +1,6 @@
 mod config;
 mod files;
+mod latex;
 mod query;
 mod render;
 mod search;
@@ -75,6 +76,7 @@ pub fn run() {
             files::read_base64,
             files::write_text_file,
             files::copy_file,
+            latex::compile_latex,
             search::search_text,
             search::find_backlinks,
             query::collect_notes,

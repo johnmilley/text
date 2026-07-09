@@ -40,6 +40,7 @@ more text.
     "/vault/notes.md": NOTES_MD,
     "/vault/other.md": OTHER_MD,
     "/vault/stuff/inside.md": "# Inside\n\nhello from a subfolder.\n",
+    "/vault/paper.tex": "\\documentclass{article}\\begin{document}hi\\end{document}\n",
   };
 
   const CONFIG = {
@@ -63,6 +64,11 @@ more text.
     zen_sidebar: false,
     zen_typewriter: true,
     typewriter_anchor: "top",
+    spellcheck: false,
+    preview_replaces_editor: false,
+    toolbar_capture: true,
+    toolbar_calendar: true,
+    toolbar_preview: true,
     keys: {},
   };
 
@@ -72,6 +78,7 @@ more text.
     ]},
     { name: "notes.md", path: "/vault/notes.md", is_dir: false, mtime: 2, children: null },
     { name: "other.md", path: "/vault/other.md", is_dir: false, mtime: 1, children: null },
+    { name: "paper.tex", path: "/vault/paper.tex", is_dir: false, mtime: 1, children: null },
   ];
 
   const THEME = { id: "text-dark", name: "text dark", dark: true, colors: {}, fonts: {}, css: null };
@@ -91,7 +98,7 @@ more text.
     },
     stat_mtime: () => 2,
     write_file: ({ path, content }) => { FILES[path] = content; return { mtime: 3, conflict: false }; },
-    write_text_file: () => null,
+    write_text_file: ({ path, content }) => { FILES[path] = content; },
     create_file: ({ path }) => { FILES[path] = ""; },
     create_dir: () => null,
     collect_notes: () => [],
@@ -99,6 +106,9 @@ more text.
     find_backlinks: () => [],
     render_preview: ({ text }) => `<p>${(text || "").slice(0, 40)}</p>`,
     read_image: () => ({ base64: "", mtime: 1 }),
+    read_base64: () => "",
+    copy_file: () => null,
+    compile_latex: () => ({ ok: false, pdf_path: "", log: "! LaTeX Error: stub compile — pdflatex is not actually installed in this headless smoke test." }),
   };
 
   window.__TAURI_INTERNALS__ = {

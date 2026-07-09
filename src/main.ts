@@ -273,7 +273,7 @@ function updateStatus() {
   fwd.disabled = !t.fwd.length;
   const ev = $("#tb-editview");
   const canPreview = !!currentPath && isMarkdownishPath(currentPath);
-  ev.hidden = !canPreview;
+  ev.hidden = !canPreview || !config.toolbar_preview;
   if (canPreview) {
     ev.innerHTML = previewOn() ? EDIT_ICON : EYE_ICON;
     ev.title = previewOn() ? "Back to editing (Ctrl+Shift+M)" : "Preview (Ctrl+Shift+M)";
@@ -659,7 +659,9 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
   if (scope) {
     const path = entry ? entry.path : root!;
     for (const item of modContextItems) {
-      if (item.scope.includes(scope)) rest.push([item.label, () => item.run({ scope, path })]);
+      if (item.scope.includes(scope) && (!item.when || item.when({ scope, path }))) {
+        rest.push([item.label, () => item.run({ scope, path })]);
+      }
     }
   }
   rest.sort((a, b) => a[0].localeCompare(b[0]));
@@ -714,6 +716,10 @@ function buildTextApi(): TextAPI {
     notes: { collect: () => collectNotesCached() },
     openNote: (path, line) => openNote(path, line),
     http: (...args: Parameters<typeof fetch>) => fetch(...args),
+    system: {
+      compileLatex: (path) =>
+        api.compileLatex(path).then((r) => ({ ok: r.ok, pdfPath: r.pdf_path, log: r.log })),
+    },
     ui: {
       info: (build) => infoBox(build),
       confirm: (message, okLabel = "OK") => confirmBox(message, okLabel),
@@ -1232,6 +1238,7 @@ function ensureEditor2(): Editor {
   editor2.setVim(config.vim_mode);
   editor2.setLineNumbers(config.line_numbers);
   editor2.setHighlightLine(config.highlight_line);
+  editor2.setSpellcheck(config.spellcheck);
   return editor2;
 }
 
@@ -2671,6 +2678,8 @@ async function applyConfigFromDisk() {
   editor2?.setVim(config.vim_mode);
   api.setSingleLineBreaks(config.single_line_breaks);
   applyEditorView();
+  applyPreviewMode();
+  applyToolbar();
   $("#sidebar").style.width = `${config.sidebar_width}px`;
   applySidebarSide();
   themes = await api.listThemes();
@@ -2689,12 +2698,31 @@ function applySidebarSide() {
   $("#app").classList.toggle("sidebar-right", config.sidebar_right);
 }
 
-/** Line numbers + current-line highlight, applied to both editors. */
+/** Line numbers + current-line highlight + spellcheck, applied to both editors. */
 function applyEditorView() {
   editor.setLineNumbers(config.line_numbers);
   editor.setHighlightLine(config.highlight_line);
+  editor.setSpellcheck(config.spellcheck);
   editor2?.setLineNumbers(config.line_numbers);
   editor2?.setHighlightLine(config.highlight_line);
+  editor2?.setSpellcheck(config.spellcheck);
+}
+
+/** On desktop, let preview replace the editor pane instead of splitting beside
+ * it — the same single-pane behaviour phones always use (see the `body.web`
+ * rule in styles.css this mirrors). */
+function applyPreviewMode() {
+  document.body.classList.toggle("preview-replaces-editor", config.preview_replaces_editor);
+}
+
+/** Show/hide the optional top-bar icons per config; back/forward/settings are
+ * never optional. The edit/preview icon has its own visibility logic in
+ * updateStatus (it also depends on whether the current file is previewable),
+ * so just refresh that here. */
+function applyToolbar() {
+  $("#tb-capture").hidden = !config.toolbar_capture;
+  $("#tb-calendar").hidden = !config.toolbar_calendar;
+  updateStatus();
 }
 
 /** The settings panel (Ctrl+,) — a friendly face over config.toml. */
@@ -2718,6 +2746,8 @@ function openSettingsPanel() {
     },
     applyEditorView,
     applySidebarSide,
+    applyPreviewMode,
+    applyToolbar,
     applyZen,
     openDemo: () => void openDemoNote(),
     pickTheme: () => void pickTheme(),

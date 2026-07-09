@@ -56,6 +56,11 @@ export const defaultConfig = (): Config => ({
   zen_sidebar: false,
   zen_typewriter: true,
   typewriter_anchor: "top",
+  spellcheck: false,
+  preview_replaces_editor: false,
+  toolbar_capture: true,
+  toolbar_calendar: true,
+  toolbar_preview: true,
   keys: defaultKeys(),
 });
 

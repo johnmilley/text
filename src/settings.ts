@@ -22,6 +22,10 @@ export interface SettingsHost {
   applyEditorView(): void;
   /** move the sidebar to the configured edge */
   applySidebarSide(): void;
+  /** on desktop, preview replaces the editor instead of splitting beside it */
+  applyPreviewMode(): void;
+  /** show/hide the optional top-bar icons (capture, calendar, preview toggle) */
+  applyToolbar(): void;
   /** re-apply zen-mode state when its settings change */
   applyZen(): void;
   /** open the bundled markdown reference note */
@@ -51,13 +55,42 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   return node;
 };
 
+const TABS = [
+  { id: "appearance", label: "appearance" },
+  { id: "editing", label: "editing" },
+  { id: "zen", label: "zen mode" },
+  { id: "files", label: "files" },
+  { id: "shortcuts", label: "shortcuts" },
+] as const;
+
 export function openSettings(host: SettingsHost) {
   infoBox((box) => {
     box.classList.add("settings-box");
     box.appendChild(el("div", "modal-caption", "settings"));
-    const body = el("div", "settings-body");
-    box.appendChild(body);
 
+    const tabBar = el("div", "settings-tabs");
+    const panes = new Map<string, HTMLElement>();
+    box.append(tabBar);
+
+    const showTab = (id: string) => {
+      for (const [pid, pane] of panes) pane.hidden = pid !== id;
+      for (const btn of tabBar.querySelectorAll("button")) {
+        btn.classList.toggle("active", btn.dataset.tab === id);
+      }
+    };
+    for (const t of TABS) {
+      const btn = el("button", "settings-tab", t.label);
+      btn.dataset.tab = t.id;
+      btn.addEventListener("click", () => showTab(t.id));
+      tabBar.appendChild(btn);
+      const pane = el("div", "settings-body settings-pane");
+      pane.hidden = true;
+      panes.set(t.id, pane);
+      box.appendChild(pane);
+    }
+    showTab(TABS[0].id);
+
+    let body = panes.get("appearance")!;
     const section = (title: string) => {
       body.appendChild(el("div", "settings-section", title));
     };
@@ -71,7 +104,6 @@ export function openSettings(host: SettingsHost) {
     };
 
     // ---------------------------------------------------------- appearance
-    section("appearance");
 
     const themeBtn = el("button", "set-btn", host.config.theme);
     themeBtn.addEventListener("click", host.pickTheme);
@@ -178,9 +210,46 @@ export function openSettings(host: SettingsHost) {
         host.applySidebarSide,
       ),
     );
+    row(
+      "preview replaces editor",
+      checkbox(
+        () => host.config.preview_replaces_editor,
+        (v) => (host.config.preview_replaces_editor = v),
+        host.applyPreviewMode,
+      ),
+      "toggling preview (Ctrl+Shift+M) swaps the editor out instead of splitting beside it — same as on phones",
+    );
+
+    // ------------------------------------------------------------ top bar
+    section("top bar");
+
+    row(
+      "quick capture icon",
+      checkbox(
+        () => host.config.toolbar_capture,
+        (v) => (host.config.toolbar_capture = v),
+        host.applyToolbar,
+      ),
+    );
+    row(
+      "calendar icon",
+      checkbox(
+        () => host.config.toolbar_calendar,
+        (v) => (host.config.toolbar_calendar = v),
+        host.applyToolbar,
+      ),
+    );
+    row(
+      "edit/preview toggle icon",
+      checkbox(
+        () => host.config.toolbar_preview,
+        (v) => (host.config.toolbar_preview = v),
+        host.applyToolbar,
+      ),
+    );
 
     // ------------------------------------------------------------- editing
-    section("editing");
+    body = panes.get("editing")!;
 
     row(
       "vim mode",
@@ -202,8 +271,18 @@ export function openSettings(host: SettingsHost) {
       "render every newline in the preview (more wysiwyg), not just blank-line paragraph breaks",
     );
 
+    row(
+      "spellcheck",
+      checkbox(
+        () => host.config.spellcheck,
+        (v) => (host.config.spellcheck = v),
+        host.applyEditorView,
+      ),
+      "underline misspelled words using the browser/OS dictionary",
+    );
+
     // ------------------------------------------------------------- zen mode
-    section("zen mode");
+    body = panes.get("zen")!;
 
     const select = (
       get: () => string,
@@ -259,7 +338,7 @@ export function openSettings(host: SettingsHost) {
     );
 
     // --------------------------------------------------------------- files
-    section("files");
+    body = panes.get("files")!;
 
     const textInput = (get: () => string, set: (v: string) => void, placeholder: string) => {
       const input = el("input", "set-input") as HTMLInputElement;
@@ -284,7 +363,7 @@ export function openSettings(host: SettingsHost) {
     );
 
     // ----------------------------------------------------------- shortcuts
-    section("shortcuts");
+    body = panes.get("shortcuts")!;
     body.appendChild(
       el("div", "set-hint settings-keys-hint", "click a shortcut, then press the new keys (needs ctrl or alt; esc cancels)"),
     );
@@ -370,6 +449,6 @@ export function openSettings(host: SettingsHost) {
     const openRaw = el("button", "set-btn", "open config.toml");
     openRaw.addEventListener("click", host.openConfigFile);
     foot.append(demo, openRaw);
-    body.appendChild(foot);
+    box.appendChild(foot);
   });
 }

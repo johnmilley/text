@@ -9,14 +9,23 @@ services.
 Four mods ship as worked examples, deliberately different in shape:
 
 - [`src/mods/ssg`](src/mods/ssg) — an **action** mod: publishes a folder as a
-  website (local folder, GitHub Pages, or PDF). It replaced the old hard-wired
-  "share" feature.
+  website (a local folder, or PDF). It replaced the old hard-wired "share"
+  feature. A note with `slides: true` in its frontmatter publishes as a
+  click-through slide deck instead of an ordinary page.
 - [`src/mods/dataview`](src/mods/dataview) — an **inline content** mod: renders
   live `​```dataview` query blocks in the editor via `registerBlockRenderer`.
 - [`src/mods/toc`](src/mods/toc) — the simplest: a folder right-click action
   that writes a `TOC.md`. Needs **no** new API — pure existing seams.
 - [`src/mods/daily`](src/mods/daily) — daily notes + a month calendar; the mod
   that motivated `config()`, `fs.createDir/createFile`, and `ui.close`.
+- [`src/mods/latex`](src/mods/latex) — a **desktop-only host service** mod: a
+  right-click item on `.tex` files that shells out to the system `pdflatex`
+  via `system.compileLatex` and opens the resulting PDF. Motivated the
+  `ContextItemSpec.when` filter (scope alone can't say "only .tex files").
+- [`src/mods/lessons`](src/mods/lessons) — seeds a bundled `lessons/` folder
+  (a short in-app course) into the open root, once, via `fs.createFile` +
+  `fs.writeText`; the asset files are imported with `?raw` like `ssg`'s
+  templates. No new API — a pure content mod.
 
 Together they exercise both kinds of extension point: discrete commands / menu
 items / toolbar buttons, and content rendered into the editor.
@@ -94,7 +103,7 @@ Summary:
 | Method | What it does |
 | --- | --- |
 | `registerCommand({ id, title, combo?, run })` | Adds an action. With a `combo` it becomes keybindable and shows in the shortcuts list; users rebind it under `id` in `config.toml`'s `[keys]`. |
-| `addContextMenuItem({ label, scope, run })` | Adds a tree right-click item. `scope` is any of `"file"`, `"folder"`, `"root"` (the tree background). `run` receives `{ scope, path }`. |
+| `addContextMenuItem({ label, scope, when?, run })` | Adds a tree right-click item. `scope` is any of `"file"`, `"folder"`, `"root"` (the tree background). Optional `when(target)` narrows further (e.g. by extension) — omit to show whenever `scope` matches. `run` receives `{ scope, path }`. |
 | `addToolbarButton({ id, label, title?, run })` | Adds a button to the sidebar footer. |
 | `registerBlockRenderer({ lang, render })` | Renders a fenced-code block of `lang` as a live widget below the fence. See [Block renderers](#block-renderers). |
 | `onStartup(fn)` | Runs `fn` once the app has finished starting up (root opened). |
@@ -118,6 +127,7 @@ Summary:
 | `ui.confirm(message, okLabel?)` | Yes/no modal → boolean. |
 | `ui.prompt(label, initial?)` | Single-line prompt → string or `null`. |
 | `ui.close()` | Close the modal opened via info/confirm/prompt. |
+| `system.compileLatex(path)` | Desktop-only: compile a `.tex` file with the system's `pdflatex` (run twice, so cross-references resolve). Resolves `{ ok, pdfPath, log }`; rejects on the web build. |
 
 ### The `render.markdownToHtml` contract
 
@@ -191,7 +201,7 @@ capability, not the feature) and surface it on `TextAPI`.
 | `ssg/ui.ts` | The publish dialog (destination tabs + options). |
 | `ssg/site.ts` | Pure path bookkeeping: gather files, compute output names, resolve links. |
 | `ssg/render.ts` | Markdown → pages (resolving placeholders), nav, listings, asset bundling. |
-| `ssg/sinks.ts` | Destinations: local folder, PDF (print), GitHub Pages (REST API). |
+| `ssg/sinks.ts` | Destinations: local folder, PDF (print). |
 | `ssg/assets/` | Page template + site CSS + highlight.js, imported with `?raw`. |
 
 A new "publish target" is just another function in `sinks.ts` consuming the same

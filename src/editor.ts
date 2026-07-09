@@ -264,12 +264,14 @@ export class Editor {
   private typewriter = new Compartment();
   private lineNos = new Compartment();
   private activeLine = new Compartment();
+  private spellcheck = new Compartment();
   private callbacks: EditorCallbacks;
   private vimOn = false;
   private typewriterOn = false;
   private typewriterAnchor: TypewriterAnchor = "top";
   private lineNumbersOn = false;
   private highlightLineOn = true;
+  private spellcheckOn = false;
   private currentFile = "";
   private markdownish = true;
 
@@ -294,6 +296,7 @@ export class Editor {
       EditorView.lineWrapping,
       this.lineNos.of(this.lineNumbersOn ? lineNumbers() : []),
       this.activeLine.of(this.highlightLineOn ? highlightActiveLine() : []),
+      this.spellcheck.of(EditorView.contentAttributes.of({ spellcheck: this.spellcheckOn ? "true" : "false" })),
       // heading sections (and code blocks, lists, …) fold via the language's
       // fold info; the gutter chevron shows on hover-worthy lines only
       codeFolding({ placeholderText: "⋯" }),
@@ -474,6 +477,9 @@ export class Editor {
         this.lineNos.reconfigure(this.lineNumbersOn ? lineNumbers() : []),
         this.activeLine.reconfigure(this.highlightLineOn ? highlightActiveLine() : []),
         this.vimMode.reconfigure(this.vimOn ? vim() : []),
+        this.spellcheck.reconfigure(
+          EditorView.contentAttributes.of({ spellcheck: this.spellcheckOn ? "true" : "false" }),
+        ),
       ],
     });
     requestAnimationFrame(() => {
@@ -542,6 +548,16 @@ export class Editor {
     this.highlightLineOn = on;
     this.view.dispatch({
       effects: this.activeLine.reconfigure(on ? highlightActiveLine() : []),
+    });
+  }
+
+  setSpellcheck(on: boolean) {
+    if (on === this.spellcheckOn) return;
+    this.spellcheckOn = on;
+    this.view.dispatch({
+      effects: this.spellcheck.reconfigure(
+        EditorView.contentAttributes.of({ spellcheck: on ? "true" : "false" }),
+      ),
     });
   }
 

@@ -454,6 +454,17 @@ button:hover {
 #preview[hidden] {
   display: none;
 }
+
+/* "toggle preview like mobile" setting: preview replaces the editor pane
+   instead of splitting beside it, same as the always-on phone behaviour
+   further down (body.web's version of this same rule) */
+body.preview-replaces-editor #content:has(#preview:not([hidden])) #pane1 {
+  display: none;
+}
+body.preview-replaces-editor #preview {
+  flex: 1;
+  border-left: none;
+}
 #preview-bar {
   display: flex;
   align-items: center;
@@ -1149,9 +1160,30 @@ body.tree-dragging * {
   width: min(640px, 90vw);
   max-height: 76vh;
 }
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-tab {
+  color: var(--fg-muted);
+  padding: 6px 10px;
+  border-bottom: 2px solid transparent;
+}
+.settings-tab:hover {
+  color: var(--fg);
+}
+.settings-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
 .settings-body {
   overflow-y: auto;
   padding: 4px 16px 14px;
+}
+.settings-pane[hidden] {
+  display: none;
 }
 .settings-section {
   color: var(--fg-muted);
@@ -1469,6 +1501,26 @@ body.tree-dragging * {
   border-radius: 4px;
   padding: 5px 8px;
   font: inherit;
+}
+.latex-box {
+  width: min(560px, 90vw);
+}
+.latex-status {
+  margin-top: 8px;
+  color: var(--fg-muted);
+  overflow-wrap: anywhere;
+}
+.latex-log {
+  margin-top: 8px;
+  max-height: 40vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--font-editor);
+  font-size: 0.85em;
+  white-space: pre-wrap;
 }
 .ssg-status {
   min-height: 1.2em;
