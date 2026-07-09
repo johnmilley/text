@@ -1,4 +1,5 @@
 import type { Config } from "./api";
+import type { HelpItemSpec } from "./mods/types";
 import { baseKey } from "./keys";
 import { infoBox } from "./modal";
 
@@ -30,6 +31,10 @@ export interface SettingsHost {
   applyZen(): void;
   /** open the bundled markdown reference note */
   openDemo(): void;
+  /** shown at the bottom of the help tab */
+  appVersion: string;
+  /** mod-registered rows for the help tab (e.g. the lessons generator) */
+  helpItems: HelpItemSpec[];
   /** closes settings (pickers replace the modal) */
   pickTheme(): void;
   pickFont(): void;
@@ -61,6 +66,7 @@ const TABS = [
   { id: "zen", label: "zen mode" },
   { id: "files", label: "files" },
   { id: "shortcuts", label: "shortcuts" },
+  { id: "help", label: "help" },
 ] as const;
 
 export function openSettings(host: SettingsHost) {
@@ -441,14 +447,30 @@ export function openSettings(host: SettingsHost) {
     }
     refreshKeys();
 
+    // ---------------------------------------------------------------- help
+    body = panes.get("help")!;
+
+    const helpRow = (label: string, button: string, run: () => void, hint?: string) => {
+      const btn = el("button", "set-btn", button);
+      btn.addEventListener("click", run);
+      row(label, btn, hint);
+    };
+    helpRow(
+      "markdown reference",
+      "open",
+      host.openDemo,
+      "a demo note showing everything markdown can do here",
+    );
+    for (const item of host.helpItems) {
+      helpRow(item.label, item.button ?? "open", item.run, item.hint);
+    }
+    body.appendChild(el("div", "set-hint settings-version", `text v${host.appVersion}`));
+
     // ---------------------------------------------------------------- file
     const foot = el("div", "settings-foot");
-    const demo = el("button", "set-btn", "markdown reference");
-    demo.title = "open a demo note showing everything markdown can do here";
-    demo.addEventListener("click", host.openDemo);
     const openRaw = el("button", "set-btn", "open config.toml");
     openRaw.addEventListener("click", host.openConfigFile);
-    foot.append(demo, openRaw);
+    foot.append(openRaw);
     box.appendChild(foot);
   });
 }

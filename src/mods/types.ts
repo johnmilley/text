@@ -58,6 +58,16 @@ export interface ToolbarButtonSpec {
   run: () => void;
 }
 
+/** A row in settings → help: label + a button that runs the action. */
+export interface HelpItemSpec {
+  label: string;
+  /** Button caption (defaults to "open"). */
+  button?: string;
+  /** Small explanatory line under the label. */
+  hint?: string;
+  run: () => void;
+}
+
 export interface PickDirOptions {
   title?: string;
 }
@@ -74,6 +84,8 @@ export interface TextAPI {
   registerCommand(cmd: CommandSpec): void;
   addContextMenuItem(item: ContextItemSpec): void;
   addToolbarButton(btn: ToolbarButtonSpec): void;
+  /** Add a row to the help tab of the settings panel. */
+  addHelpItem(item: HelpItemSpec): void;
   /**
    * Render a fenced-code block of `spec.lang` as a live widget below the fence
    * (e.g. `dataview`, `mermaid`). The note's source text is never rewritten.
@@ -100,6 +112,13 @@ export interface TextAPI {
     createFile(path: string): Promise<void>;
     /** Native folder picker; resolves to the chosen path or `null`. */
     pickDirectory(opts?: PickDirOptions): Promise<string | null>;
+  };
+  editor: {
+    /** Absolute path of the note in the focused editor pane, or `null` when
+     * media (image/audio/PDF) or nothing is open there. */
+    currentNote(): string | null;
+    /** Insert text at the cursor of the focused editor pane. */
+    insertAtCursor(text: string): void;
   };
   render: {
     /**

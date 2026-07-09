@@ -105,6 +105,7 @@ Summary:
 | `registerCommand({ id, title, combo?, run })` | Adds an action. With a `combo` it becomes keybindable and shows in the shortcuts list; users rebind it under `id` in `config.toml`'s `[keys]`. |
 | `addContextMenuItem({ label, scope, when?, run })` | Adds a tree right-click item. `scope` is any of `"file"`, `"folder"`, `"root"` (the tree background). Optional `when(target)` narrows further (e.g. by extension) — omit to show whenever `scope` matches. `run` receives `{ scope, path }`. |
 | `addToolbarButton({ id, label, title?, run })` | Adds a button to the sidebar footer. |
+| `addHelpItem({ label, button?, hint?, run })` | Adds a row to the help tab of the settings panel (e.g. the lessons generator). |
 | `registerBlockRenderer({ lang, render })` | Renders a fenced-code block of `lang` as a live widget below the fence. See [Block renderers](#block-renderers). |
 | `onStartup(fn)` | Runs `fn` once the app has finished starting up (root opened). |
 
@@ -122,6 +123,8 @@ Summary:
 | `render.markdownToHtml(text)` | Markdown → HTML via the host renderer (see contract below). |
 | `notes.collect()` | Metadata (frontmatter, tags, tasks) for every note in the open folder, cached and refreshed after fs changes. |
 | `openNote(path, line?)` | Open a note in the editor, optionally jumping to a 1-based line. |
+| `editor.currentNote()` | Path of the note in the focused editor pane, or `null` when media or nothing is open there. |
+| `editor.insertAtCursor(text)` | Insert text at the cursor of the focused editor pane. |
 | `http(input, init?)` | `window.fetch`, for network access (e.g. the GitHub API). |
 | `ui.info(build)` | Open a modal; `build(box)` fills it. |
 | `ui.confirm(message, okLabel?)` | Yes/no modal → boolean. |

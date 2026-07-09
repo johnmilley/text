@@ -16,9 +16,13 @@ Every `---` after that point becomes a slide break instead of just a
 horizontal rule. Right-click the note → **publish…** → **local folder**,
 and the published page ships an actual click-through deck: arrow keys or
 space to advance, click the left/right half of the slide, swipe on a
-phone, `f` for fullscreen, a progress bar along the top. Nothing changes in
-the editor itself — the deck only exists in the published output, so
-writing and editing stay exactly like editing any other note.
+phone, `f` for fullscreen, a progress bar along the top.
+
+You don't have to publish to see it: toggle the markdown preview
+(`Ctrl+Shift+M`) and the preview pane becomes the same flip-through deck,
+live — click the left/right half of a slide (or the ‹ › buttons below it,
+or the arrow keys) to step through while you write. The editor itself
+stays a plain note the whole time.
 
 ## structure: one idea per section, `---` between them
 
@@ -75,8 +79,9 @@ Two ways, depending on the room:
 
 ## try it
 
-Add `slides: true` to a short note with a couple of `---` breaks, publish
-it locally, and open the result. Resize the window, try it on a phone,
+Add `slides: true` to a short note with a couple of `---` breaks and hit
+`Ctrl+Shift+M` — the preview flips into deck mode immediately. Then publish
+it locally and open the result. Resize the window, try it on a phone,
 press `f`. The whole feature is under 100 lines of vanilla JS
 (`src/mods/ssg/assets/slides.js` in the `text` repository) if you're
 curious how little it takes.

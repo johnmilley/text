@@ -46,14 +46,22 @@ function fitScale(pageWidth: number): number {
 }
 
 export async function openPdfDoc(path: string): Promise<void> {
+  // reloading the doc that's already open (recompiled LaTeX, external
+  // change) shouldn't lose the reading position or zoom
+  const sameDoc = path === docPath;
+  const keepScroll = sameDoc ? stage().scrollTop : 0;
+  const keepZoom = sameDoc ? zoom : 1;
   closePdfDoc();
   const mine = ++token;
   const { getDocument } = await lib();
   let loaded: PDFDocumentProxy;
   try {
     // asset protocol streams from disk with range requests — pdf.js only
-    // fetches the pieces it needs, so large files open fast
-    loaded = await getDocument({ url: convertFileSrc(path) }).promise;
+    // fetches the pieces it needs, so large files open fast. The query param
+    // defeats WebKit's HTTP cache, which otherwise serves stale bytes after
+    // the file is regenerated (e.g. a LaTeX recompile) — the protocol handler
+    // only reads the path, so it's ignored on the Rust side.
+    loaded = await getDocument({ url: `${convertFileSrc(path)}?v=${Date.now()}` }).promise;
   } catch {
     // protocol unavailable for this path — fall back to reading the bytes
     const { base64 } = await api.readImage(path);
@@ -66,10 +74,11 @@ export async function openPdfDoc(path: string): Promise<void> {
   }
   doc = loaded;
   docPath = path;
-  zoom = 1;
+  zoom = keepZoom;
   $("#pdf-name").textContent = path.split("/").pop() ?? path;
   $("#pdf-view").hidden = false;
   await buildPages();
+  if (keepScroll) stage().scrollTop = keepScroll;
 }
 
 export function closePdfDoc() {

@@ -35,7 +35,7 @@ import { comboCandidates } from "./keys";
 import { initPreview, previewOn, refreshPreview, schedulePreview, setPreview } from "./preview";
 import { DEMO_FILE, DEMO_NOTE } from "./demo";
 import type { NoteMeta } from "./api";
-import type { ContextItemSpec, ContextScope, TextAPI } from "./mods/types";
+import type { ContextItemSpec, ContextScope, HelpItemSpec, TextAPI } from "./mods/types";
 import { MODS } from "./mods/registry";
 import type { BlockRenderContext, BlockRenderRuntime } from "./blockrender";
 
@@ -674,6 +674,7 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
  * (above) and init (below). See src/mods/types.ts and MOD_API.md. */
 const modContextItems: ContextItemSpec[] = [];
 const modStartupHooks: (() => void)[] = [];
+const modHelpItems: HelpItemSpec[] = [];
 
 /** Build the TextAPI a mod sees, backed by the app's own functions. */
 function buildTextApi(): TextAPI {
@@ -701,7 +702,19 @@ function buildTextApi(): TextAPI {
       el.addEventListener("click", btn.run);
       row.appendChild(el);
     },
+    addHelpItem: (item) => modHelpItems.push(item),
     onStartup: (fn) => modStartupHooks.push(fn),
+    editor: {
+      currentNote: () => {
+        if (focusedPane === 2 && pane2Path) return pane2Path;
+        if (!currentPath || viewingImage || viewingAudio || viewingPdf) return null;
+        return currentPath;
+      },
+      insertAtCursor: (text) => {
+        const ed = focusedPane === 2 && editor2 ? editor2 : editor;
+        ed.insertAt(text);
+      },
+    },
     fs: {
       listTree: (r) => api.listTree(r),
       readText: (path) => api.readFile(path).then((f) => f.content),
@@ -2750,6 +2763,8 @@ function openSettingsPanel() {
     applyToolbar,
     applyZen,
     openDemo: () => void openDemoNote(),
+    appVersion: APP_VERSION,
+    helpItems: modHelpItems,
     pickTheme: () => void pickTheme(),
     pickFont: () => void pickEditorFont(),
     openConfigFile: () => void openConfig(),

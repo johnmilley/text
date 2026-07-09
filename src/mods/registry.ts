@@ -13,5 +13,6 @@ import { dailyMod } from "./daily";
 import { mermaidMod } from "./mermaid";
 import { latexMod } from "./latex";
 import { lessonsMod } from "./lessons";
+import { templatesMod } from "./templates";
 
-export const MODS: Mod[] = [ssgMod, dataviewMod, tocMod, dailyMod, mermaidMod, latexMod, lessonsMod];
+export const MODS: Mod[] = [ssgMod, dataviewMod, tocMod, dailyMod, mermaidMod, latexMod, lessonsMod, templatesMod];

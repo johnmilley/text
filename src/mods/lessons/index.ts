@@ -65,12 +65,14 @@ export const lessonsMod: Mod = {
       scope: ["root"],
       run: () => void generateLessons(app),
     });
-    app.addToolbarButton({
-      id: "btn-lessons",
-      label: "lessons",
-      title: "Generate a lessons/ folder — a self-contained course in text",
-      icon: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h5a2 2 0 0 1 2 2V13a2 2 0 0 0-2-2H2z"/><path d="M14 3.5H9a2 2 0 0 0-2 2V13a2 2 0 0 1 2-2h5z"/></svg>',
-      run: () => void generateLessons(app),
+    app.addHelpItem({
+      label: "lessons folder",
+      button: "generate",
+      hint: "write a lessons/ folder into the open notes — a self-contained course in text",
+      run: () => {
+        app.ui.close(); // the lessons readme opens behind the settings modal
+        void generateLessons(app);
+      },
     });
   },
 };
