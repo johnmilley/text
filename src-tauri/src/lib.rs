@@ -13,6 +13,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // remember window size/position across launches (per window label);
+        // without this the WM places the window wherever it pleases
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(watch::WatcherState::default())
         .manage(windows::WindowParams::default())
         .setup(|app| {

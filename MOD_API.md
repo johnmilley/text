@@ -26,6 +26,12 @@ Four mods ship as worked examples, deliberately different in shape:
   (a short in-app course) into the open root, once, via `fs.createFile` +
   `fs.writeText`; the asset files are imported with `?raw` like `ssg`'s
   templates. No new API — a pure content mod.
+- [`src/mods/corkboard`](src/mods/corkboard) — a **view** mod: a
+  Scrivener-style index-card board for a folder. Synopses come from (and are
+  edited back into) each note's `synopsis:` frontmatter; drag-to-reorder
+  persists in a hidden `.corkboard` file, never in the notes. Built entirely
+  on existing seams (`ui.info` + `fs` + `openNote`) — proof a whole view fits
+  the API.
 
 Together they exercise both kinds of extension point: discrete commands / menu
 items / toolbar buttons, and content rendered into the editor.
