@@ -35,7 +35,9 @@ let currentTheme: Theme | null = null;
 export function applyTheme(theme: Theme) {
   currentTheme = theme;
   const root = document.documentElement;
-  for (const [token, fallback] of Object.entries(TOKEN_DEFAULTS)) {
+  // ==highlight== wash: themes may set their own; the fallback tracks dark/light
+  const defaults = { ...TOKEN_DEFAULTS, highlight: theme.dark ? "#4d4020" : "#ffef9e" };
+  for (const [token, fallback] of Object.entries(defaults)) {
     root.style.setProperty(`--${token}`, theme.colors[token] ?? fallback);
   }
   for (const [token, fallback] of Object.entries(FONT_DEFAULTS)) {

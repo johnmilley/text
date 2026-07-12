@@ -245,6 +245,13 @@ export const compileLatex = (path: string): Promise<LatexResult> =>
     ? invoke<LatexResult>("compile_latex", { path })
     : Promise.reject(new Error("LaTeX compiling needs the desktop app"));
 
+/** Desktop-only: the clipboard's image as base64 PNG, or null when the
+ * clipboard holds no image. WebKitGTK's paste events don't reliably carry
+ * image data, so the editor falls back to this. On the web the paste event
+ * itself is the only clipboard access — resolves null there. */
+export const readClipboardImage = (): Promise<string | null> =>
+  isTauri ? invoke<string | null>("read_clipboard_image") : Promise.resolve(null);
+
 /** Note metadata (frontmatter, tags, tasks) for dataview query blocks. */
 export const collectNotes = (root: string) => backend.collectNotes(root);
 

@@ -1,3 +1,4 @@
+mod clipboard;
 mod config;
 mod files;
 mod latex;
@@ -80,6 +81,7 @@ pub fn run() {
             files::write_text_file,
             files::copy_file,
             latex::compile_latex,
+            clipboard::read_clipboard_image,
             search::search_text,
             search::find_backlinks,
             query::collect_notes,

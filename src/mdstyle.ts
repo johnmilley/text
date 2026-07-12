@@ -236,6 +236,28 @@ const hashtags = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
+// ==highlighted== spans (Obsidian-style; render.rs turns them into <mark>).
+// The markers must hug the content — `a == b` stays plain.
+const HIGHLIGHT_RE = /==(\S(?:[^=\n]*\S)?)==/g;
+
+const highlightDecorator = new MatchDecorator({
+  regexp: HIGHLIGHT_RE,
+  decoration: Decoration.mark({ class: "cm-mdhighlight" }),
+});
+
+const highlights = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = highlightDecorator.createDeco(view);
+    }
+    update(update: ViewUpdate) {
+      this.decorations = highlightDecorator.updateDeco(update, this.decorations);
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
+
 // task-list checkboxes: `- [ ]` / `- [x]`, clickable (toggled in editor.ts)
 const CHECKBOX_RE = /^(\s*(?:[-*+]|\d+[.)])\s+)\[[ xX]\](?=\s|$)/g;
 
@@ -281,7 +303,7 @@ export function toggleCheckboxAt(view: EditorView, pos: number): boolean {
 
 /** Extensions for markdown documents. */
 export function markdownStyling(): Extension {
-  return [lineStyles, inlineCode, frontmatter, wikilinks, hashtags, checkboxes];
+  return [lineStyles, inlineCode, frontmatter, wikilinks, hashtags, highlights, checkboxes];
 }
 
 /** The shared highlight style (markdown inline + generic code tokens). */

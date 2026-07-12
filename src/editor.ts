@@ -38,6 +38,10 @@ export interface EditorCallbacks {
   resolveImage: ImageResolver;
   /** Save a pasted image; resolves to the file name to embed, or null. */
   importImageBlob: (blob: File) => Promise<string | null>;
+  /** Desktop fallback: WebKitGTK paste events often carry NO data at all for
+   * clipboard images — read the native clipboard instead. Resolves to the
+   * saved file name to embed, or null when the clipboard has no image. */
+  importNativeImage?: () => Promise<string | null>;
   onNavBack: () => void;
   onNavForward: () => void;
   /** mod-registered fenced-code block renderers (omit to disable) */
@@ -411,17 +415,25 @@ export class Editor {
               .find((it) => it.kind === "file" && it.type.startsWith("image/"))
               ?.getAsFile() ??
             null;
+          const insertEmbed = (name: string | null) => {
+            if (!name) return;
+            const { from, to } = view.state.selection.main;
+            const insert = `![[${name}]]`;
+            view.dispatch({
+              changes: { from, to, insert },
+              selection: { anchor: from + insert.length },
+            });
+          };
           if (image) {
             event.preventDefault();
-            void cbs.importImageBlob(image).then((name) => {
-              if (!name) return;
-              const { from, to } = view.state.selection.main;
-              const insert = `![[${name}]]`;
-              view.dispatch({
-                changes: { from, to, insert },
-                selection: { anchor: from + insert.length },
-              });
-            });
+            void cbs.importImageBlob(image).then(insertEmbed);
+            return true;
+          }
+          // an empty paste event (no image, no text of any kind) is how a
+          // clipboard image looks through WebKitGTK — ask the native side
+          if (cbs.importNativeImage && !cb.types.some((t) => t.startsWith("text/"))) {
+            event.preventDefault();
+            void cbs.importNativeImage().then(insertEmbed);
             return true;
           }
           // a URL pasted over selected text becomes a link

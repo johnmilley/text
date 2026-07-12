@@ -630,6 +630,7 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
       ]);
       top.push(["open in split pane", () => void openInSplit(entry.path)]);
       rest.push(["move to…", () => void moveFileTo(entry.path)]);
+      rest.push(["copy to folder…", () => void copyFileTo(entry.path)]);
       rest.push(["find references", () => void showReferences(entry.path)]);
     }
     rest.push(["rename", () => void renameEntry(entry)]);
@@ -1244,6 +1245,7 @@ function ensureEditor2(): Editor {
     openExternal: (url) => void openUrl(url),
     resolveImage: imageResolver(() => pane2Path),
     importImageBlob,
+    importNativeImage,
     onNavBack: () => {},
     onNavForward: () => {},
     blockRender: blockRenderRuntime,
@@ -1316,6 +1318,20 @@ async function openInSplit(path: string) {
 
 /** Move `path` into a chosen subfolder of the open root (or back to the root),
  * keeping any open tab/editor pointed at it. */
+/** Copy a file into ANY folder via the native picker — the way to hand a note
+ * to another text window (its fs-watcher shows the copy immediately), or to
+ * anywhere else on disk. Complements "move to…", which stays inside the root. */
+async function copyFileTo(path: string) {
+  const dest = await pickFolder(`copy "${path.split("/").pop()}" to folder`);
+  if (!dest) return;
+  try {
+    await api.copyPath(path, dest);
+    if (root && (dest === root || dest.startsWith(root + "/"))) await refreshTree();
+  } catch (err) {
+    showIssue(`copy failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+  }
+}
+
 async function moveFileTo(path: string) {
   if (!root) return;
   const dirs: string[] = [];
@@ -2291,6 +2307,22 @@ async function importImageBlob(blob: File): Promise<string | null> {
   }
 }
 
+/** Desktop paste fallback: WebKitGTK hands the editor an empty paste event
+ * for clipboard images, so read the image from the native clipboard. */
+async function importNativeImage(): Promise<string | null> {
+  if (!root) return null;
+  try {
+    const b64 = await api.readClipboardImage();
+    if (!b64) return null;
+    const path = await api.writeBase64(imageDestDir(), `pasted-${timestamp()}.png`, b64);
+    await refreshTree();
+    return path.split("/").pop()!;
+  } catch (err) {
+    showIssue(`image paste failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+    return null;
+  }
+}
+
 /** Native file drop: copy the file into the assets folder (config.image_dir)
  * and, when dropped on an open note, insert an embed at the drop point. Images
  * embed inline; any other file (pdf, zip, …) becomes an `![[name]]` attachment
@@ -3210,6 +3242,7 @@ async function init() {
     openExternal: (url) => void openUrl(url),
     resolveImage: imageResolver(() => currentPath),
     importImageBlob,
+    importNativeImage,
     onNavBack: goBack,
     onNavForward: goForward,
     blockRender: blockRenderRuntime,
@@ -3268,6 +3301,7 @@ async function init() {
     initMdKeyBar({
       activeView: () => (focusedPane === 2 && editor2 ? editor2.view : editor.view),
       openWikilink,
+      openSearch: () => showPane("search"),
       enabled: () => window.matchMedia("(pointer: coarse)").matches,
     });
   }

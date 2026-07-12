@@ -9,6 +9,8 @@
  *   LIST FROM "projects"            — notes in a folder
  *   TABLE status, due FROM #course  — frontmatter fields as columns
  *   TASK FROM "daily"               — open `- [ ]` items
+ *   ... WHERE status = active AND due <= 2026-08-01
+ *   ... WHERE name contains draft   — ops: = != > < >= <= contains
  *   ... SORT name DESC  /  ... LIMIT 20
  *   ```
  *

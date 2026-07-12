@@ -1,16 +1,20 @@
 /**
  * Mobile markdown accessory bar (the "markdown keyboard"): a thumb row that
  * floats directly on top of the on-screen keyboard while the editor has focus
- * on a phone, 1Writer-style. Buttons wrap the selection or prefix the current
- * line(s) with markdown; a contextual "open →" chip appears when the caret
- * sits inside a [[wikilink]], which is how links are followed on touch (a
- * plain tap only moves the caret).
+ * on a phone, iA-Writer-style. Plain-character buttons wrap the selection or
+ * prefix the current line(s); `#` stacks (tap again to deepen the heading); a
+ * contextual "open →" chip appears when the caret sits inside a [[wikilink]],
+ * which is how links are followed on touch (a plain tap only moves the
+ * caret). The ⌘ button opens a small sheet with the second-string actions
+ * (search, link, quote, strikethrough, hide keyboard).
  *
  * Web build only, and only when a soft keyboard is plausible (coarse pointer).
- * Positioning tracks window.visualViewport so the bar rides the top of the
- * keyboard as it opens, closes, or resizes.
+ * Positioning tracks window.visualViewport every animation frame while the
+ * bar is visible — event-driven updates proved to miss iOS keyboard
+ * transitions, leaving the bar stranded mid-screen or under the keyboard.
  */
 
+import { redo, undo } from "@codemirror/commands";
 import type { EditorView } from "@codemirror/view";
 import { wikilinkAt } from "./mdstyle";
 
@@ -34,7 +38,7 @@ function wrap(view: EditorView, left: string, right = left): void {
   view.focus();
 }
 
-/** Toggle a line prefix ("# ", "- ", "> ", "- [ ] ") over the selected lines. */
+/** Toggle a line prefix ("- ", "> ", "- [ ] ") over the selected lines. */
 function linePrefix(view: EditorView, prefix: string): void {
   const { doc, selection } = view.state;
   const first = doc.lineAt(selection.main.from).number;
@@ -55,17 +59,41 @@ function linePrefix(view: EditorView, prefix: string): void {
   view.focus();
 }
 
-/** [label, tooltip, action] — label is shown on the button. */
-const BUTTONS: [string, string, (v: EditorView) => void][] = [
-  ["H", "Heading", (v) => linePrefix(v, "# ")],
-  ["B", "Bold", (v) => wrap(v, "**")],
-  ["I", "Italic", (v) => wrap(v, "*")],
+/** Each tap adds one `#`: plain line → "# ", "# " → "## ", … capped at 6. */
+function heading(view: EditorView): void {
+  const { doc, selection } = view.state;
+  const first = doc.lineAt(selection.main.from).number;
+  const last = doc.lineAt(selection.main.to).number;
+  const specs: { from: number; insert: string }[] = [];
+  for (let n = first; n <= last; n++) {
+    const line = doc.line(n);
+    if (line.text.startsWith("#")) {
+      const hashes = /^#+/.exec(line.text)![0].length;
+      if (hashes < 6) specs.push({ from: line.from, insert: "#" });
+    } else {
+      specs.push({ from: line.from, insert: "# " });
+    }
+  }
+  if (!specs.length) return view.focus();
+  const changes = view.state.changes(specs);
+  view.dispatch({ changes, selection: selection.map(changes, 1) });
+  view.focus();
+}
+
+/** [label, tooltip, action, extra class] — label is shown on the button. */
+type Btn = [string, string, (v: EditorView) => void, string?];
+
+const BUTTONS: Btn[] = [
+  ["#", "Heading (tap again to deepen)", heading],
+  ["B", "Bold", (v) => wrap(v, "**"), "mk-b"],
+  ["I", "Italic", (v) => wrap(v, "*"), "mk-i"],
   ["`", "Code", (v) => wrap(v, "`")],
+  ["A", "Highlight", (v) => wrap(v, "=="), "mk-hl"],
+  ["[[ ]]", "Wikilink", (v) => wrap(v, "[[", "]]")],
   ["•", "Bullet list", (v) => linePrefix(v, "- ")],
   ["☑", "Task", (v) => linePrefix(v, "- [ ] ")],
-  ["❝", "Quote", (v) => linePrefix(v, "> ")],
-  ["[[ ]]", "Wikilink", (v) => wrap(v, "[[", "]]")],
-  ["🔗", "Link", (v) => wrap(v, "[", "](url)")],
+  ["↺", "Undo", (v) => void undo(v)],
+  ["↻", "Redo", (v) => void redo(v)],
 ];
 
 export interface KeyBarOptions {
@@ -73,6 +101,8 @@ export interface KeyBarOptions {
   activeView: () => EditorView | null;
   /** Follow a wikilink target (same handler the desktop Ctrl+click uses). */
   openWikilink: (target: string) => void;
+  /** Open the search pane (lives in the ⌘ sheet, iA-style). */
+  openSearch: () => void;
   /** Whether to mount at all — web build on a touch device. */
   enabled: () => boolean;
 }
@@ -102,20 +132,61 @@ export function initMdKeyBar(opts: KeyBarOptions): void {
   });
   scroller.appendChild(openBtn);
 
-  for (const [label, title, action] of BUTTONS) {
+  const mkBtn = (label: string, title: string, cls: string | undefined, run: () => void) => {
     const b = document.createElement("button");
-    b.className = "mk-btn";
+    b.className = "mk-btn" + (cls ? ` ${cls}` : "");
     b.textContent = label;
     b.title = title;
     b.setAttribute("aria-label", title);
     b.tabIndex = -1;
     b.addEventListener("pointerdown", (e) => e.preventDefault());
+    b.addEventListener("click", run);
+    return b;
+  };
+
+  for (const [label, title, action, cls] of BUTTONS) {
+    scroller.appendChild(
+      mkBtn(label, title, cls, () => {
+        const v = opts.activeView();
+        if (v) action(v);
+      }),
+    );
+  }
+
+  // ---- the ⌘ sheet: second-string actions, iA-style
+  const sheet = document.createElement("div");
+  sheet.className = "mk-sheet";
+  sheet.hidden = true;
+  const closeSheet = () => {
+    sheet.hidden = true;
+  };
+  const SHEET: [string, (v: EditorView) => void][] = [
+    ["search", () => opts.openSearch()],
+    ["link  [](url)", (v) => wrap(v, "[", "](url)")],
+    ["quote  >", (v) => linePrefix(v, "> ")],
+    ["strikethrough  ~~", (v) => wrap(v, "~~")],
+    ["hide keyboard", (v) => v.contentDOM.blur()],
+  ];
+  for (const [label, action] of SHEET) {
+    const b = document.createElement("button");
+    b.className = "mk-cmd";
+    b.textContent = label;
+    b.tabIndex = -1;
+    b.addEventListener("pointerdown", (e) => e.preventDefault());
     b.addEventListener("click", () => {
+      closeSheet();
       const v = opts.activeView();
       if (v) action(v);
     });
-    scroller.appendChild(b);
+    sheet.appendChild(b);
   }
+  bar.appendChild(sheet);
+
+  scroller.appendChild(
+    mkBtn("⌘", "More", undefined, () => {
+      sheet.hidden = !sheet.hidden;
+    }),
+  );
 
   document.body.appendChild(bar);
 
@@ -128,6 +199,14 @@ export function initMdKeyBar(opts: KeyBarOptions): void {
     bar.style.transform = `translateY(${-Math.max(0, gap)}px)`;
   };
 
+  // track the keyboard every frame while visible: iOS animates the viewport
+  // without firing enough resize/scroll events to follow it reliably
+  let raf = 0;
+  const track = (): void => {
+    place();
+    raf = requestAnimationFrame(track);
+  };
+
   const updateOpen = (): void => {
     const v = opts.activeView();
     openTarget = v ? wikilinkAt(v, v.state.selection.main.head) : null;
@@ -136,12 +215,17 @@ export function initMdKeyBar(opts: KeyBarOptions): void {
 
   const show = (): void => {
     if (!opts.enabled()) return;
-    bar.hidden = false;
-    place();
+    if (bar.hidden) {
+      bar.hidden = false;
+      cancelAnimationFrame(raf);
+      track();
+    }
     updateOpen();
   };
   const hide = (): void => {
     bar.hidden = true;
+    closeSheet();
+    cancelAnimationFrame(raf);
   };
 
   document.addEventListener("focusin", (e) => {
@@ -155,18 +239,10 @@ export function initMdKeyBar(opts: KeyBarOptions): void {
     }, 0);
   });
 
-  if (vv) {
-    const onViewport = () => {
-      if (!bar.hidden) place();
-    };
-    vv.addEventListener("resize", onViewport);
-    vv.addEventListener("scroll", onViewport);
-  }
-
-  let raf = 0;
+  let selRaf = 0;
   document.addEventListener("selectionchange", () => {
     if (bar.hidden) return;
-    cancelAnimationFrame(raf);
-    raf = requestAnimationFrame(updateOpen);
+    cancelAnimationFrame(selRaf);
+    selRaf = requestAnimationFrame(updateOpen);
   });
 }

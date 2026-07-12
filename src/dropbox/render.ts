@@ -7,7 +7,7 @@
  * the data-* placeholders against the open folder, same as on desktop.
  */
 
-import { Marked, type Tokens } from "marked";
+import { Marked, type RendererThis, type Tokens, type TokenizerThis } from "marked";
 
 let singleLineBreaks = false;
 export const setSingleLineBreaks = (v: boolean): void => {
@@ -90,9 +90,25 @@ const wikiLink = {
   },
 };
 
+// ==highlighted== → <mark>, mirroring render.rs's add_highlights: the markers
+// must hug the content (`a == b` stays literal), inline formatting nests.
+const mdHighlight = {
+  name: "mdhighlight",
+  level: "inline" as const,
+  start: (src: string) => src.indexOf("=="),
+  tokenizer(this: TokenizerThis, src: string): Tokens.Generic | undefined {
+    const m = /^==(\S(?:[^=\n]*\S)?)==/.exec(src);
+    if (!m) return undefined;
+    return { type: "mdhighlight", raw: m[0], tokens: this.lexer.inlineTokens(m[1]) };
+  },
+  renderer(this: RendererThis, t: Tokens.Generic): string {
+    return `<mark>${this.parser.parseInline(t.tokens ?? [])}</mark>`;
+  },
+};
+
 const md = new Marked({ gfm: true });
 md.use({
-  extensions: [wikiEmbed, wikiLink],
+  extensions: [wikiEmbed, wikiLink, mdHighlight],
   renderer: {
     image({ href, text }: Tokens.Image): string {
       return embedHtml(href, text, false);

@@ -33,4 +33,6 @@ base64 = "0.22"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 rand = "0.9"
 tauri-plugin-window-state = "2.4.1"
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control", "image-data"] }
+png = "0.18.1"
 

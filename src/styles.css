@@ -1458,6 +1458,18 @@ body.tree-dragging * {
   padding: 0 2px;
 }
 
+/* ==highlighted== text (the preview/mods render it as <mark>) */
+.cm-mdhighlight {
+  background: var(--highlight);
+  border-radius: 2px;
+}
+mark {
+  background: var(--highlight);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 /* `inline code`: monospace + tint, even when the editor font is proportional */
 .cm-inlinecode {
   font-family: ui-monospace, monospace;
@@ -2198,6 +2210,48 @@ body.web #status {
 }
 #md-keybar .mk-open[hidden] {
   display: none;
+}
+#md-keybar .mk-b {
+  font-weight: 750;
+}
+#md-keybar .mk-i {
+  font-style: italic;
+}
+/* the highlight button wears the theme's ==highlight== wash */
+#md-keybar .mk-hl {
+  background: var(--highlight);
+  color: var(--fg);
+  border-radius: 4px;
+  min-width: 34px;
+  height: 30px;
+  align-self: center;
+}
+/* the ⌘ sheet: second-string actions in a small popover above the bar */
+#md-keybar .mk-sheet {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 6px;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+#md-keybar .mk-sheet[hidden] {
+  display: none;
+}
+#md-keybar .mk-cmd {
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: 8px;
+  color: var(--fg);
+  font-size: 15px;
+}
+#md-keybar .mk-cmd:active {
+  background: var(--bg-hover);
 }
 
 /* ------------------------------------------------------------ mermaid */

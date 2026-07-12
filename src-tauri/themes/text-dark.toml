@@ -12,7 +12,7 @@
 #   tag        #tags                      quote      blockquotes
 #   code       inline code / monospans    code-bg    code block background
 #   border     hairlines                  cursor     caret
-#   selection  text selection
+#   selection  text selection             highlight  ==highlighted== text wash
 
 name = "Text Dark"
 dark = true
@@ -33,6 +33,7 @@ code-bg = "#1f2125"
 border = "#26282c"
 cursor = "#d4d4d0"
 selection = "#2c3a48"
+highlight = "#4d4020"
 
 [fonts]
 editor = "ui-monospace, 'JetBrains Mono', 'Fira Code', 'DejaVu Sans Mono', monospace"

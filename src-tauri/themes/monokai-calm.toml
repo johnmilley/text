@@ -20,6 +20,7 @@ code-bg = "#32322d"
 border = "#3a3a34"
 cursor = "#d8d8d2"
 selection = "#45453d"
+highlight = "#55511f"
 
 [fonts]
 editor = "ui-monospace, 'JetBrains Mono', 'Fira Code', 'DejaVu Sans Mono', monospace"

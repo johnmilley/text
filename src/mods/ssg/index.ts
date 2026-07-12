@@ -44,11 +44,12 @@ export const ssgMod: Mod = {
       run: (target) => publishFile(target.path),
     });
 
-    app.addToolbarButton({
-      id: "btn-publish",
+    // no toolbar button: publish is an occasional action, so it lives in the
+    // right-click menu, the shortcut, and settings → help — not the file bar
+    app.addHelpItem({
       label: "publish",
-      title: "Publish this folder as a website (Ctrl+Shift+S)",
-      icon: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10.5V2.5M5 5l3-3 3 3"/><path d="M3 9.5v3a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-3"/></svg>',
+      button: "publish…",
+      hint: "this folder as a website or PDF — also on any folder's right-click, or Ctrl+Shift+S",
       run: () => publish(app.currentRoot()),
     });
   },
