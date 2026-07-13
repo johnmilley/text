@@ -197,6 +197,46 @@ pub async fn list_tree(root: String) -> Result<Vec<Entry>, String> {
         .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Deserialize)]
+struct CorkOrder {
+    order: Vec<String>,
+}
+
+fn collect_orders(dir: &Path, depth: usize, out: &mut HashMap<String, Vec<String>>) {
+    if depth > 32 {
+        return;
+    }
+    if let Ok(text) = fs::read_to_string(dir.join(".corkboard")) {
+        if let Ok(parsed) = serde_json::from_str::<CorkOrder>(&text) {
+            out.insert(dir.to_string_lossy().into_owned(), parsed.order);
+        }
+    }
+    let Ok(read) = fs::read_dir(dir) else { return };
+    for item in read.flatten() {
+        let name = item.file_name().to_string_lossy().into_owned();
+        if is_hidden(&name) {
+            continue;
+        }
+        if item.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            collect_orders(&item.path(), depth + 1, out);
+        }
+    }
+}
+
+/// Every folder's manual card order under root — the `.corkboard` files the
+/// corkboard mod writes, as dir path → ordered names. The frontend applies
+/// them to the sidebar tree so a corkboard rearrange shows there too.
+#[tauri::command]
+pub async fn folder_orders(root: String) -> Result<HashMap<String, Vec<String>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = HashMap::new();
+        collect_orders(Path::new(&root), 0, &mut out);
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 pub fn mtime_of(path: &Path) -> Result<u64, String> {
     let meta = fs::metadata(path).map_err(|e| e.to_string())?;
     let t = meta.modified().map_err(|e| e.to_string())?;

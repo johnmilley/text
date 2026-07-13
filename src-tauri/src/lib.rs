@@ -65,6 +65,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             files::list_tree,
+            files::folder_orders,
             files::read_file,
             files::read_image,
             files::write_file,

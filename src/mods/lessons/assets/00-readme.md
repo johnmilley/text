@@ -25,6 +25,10 @@ anything freely, this copy is yours.
 - `07-latex-graph-theory.tex` — LaTeX notes on graph theory and combinatorics,
   compiled locally with the system's TeX install. Right-click the file →
   **compile LaTeX → PDF**.
+- [[08-dataview]] — live query blocks: your notes' frontmatter, tags, and
+  open tasks as self-updating lists and tables.
+- [[09-corkboard]] — a folder as draggable index cards, synopses saved in
+  frontmatter; the card order carries over into the sidebar.
 
 ## a few things worth knowing going in
 

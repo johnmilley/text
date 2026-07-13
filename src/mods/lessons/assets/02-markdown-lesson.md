@@ -15,6 +15,8 @@ place. This note is the shorter, hands-on version.)
 A blank line separates paragraphs. Within one, `*this*` becomes *this*,
 `**this**` becomes **this**, and `~~this~~` becomes ~~this~~ (strikethrough
 needs Ctrl+Shift+X selected first, or just type the tildes by hand).
+`==this==` becomes ==this== — a highlight, like running a marker pen over
+the words (on a phone, it's the marker key on the keyboard bar).
 
 > Try it: put your cursor in the word "interactively" in the title above,
 > press `Ctrl+B`. `text` wraps the whole word for you without needing a

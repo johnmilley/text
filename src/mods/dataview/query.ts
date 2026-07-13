@@ -129,12 +129,15 @@ export function runQuery(query: Query, notes: NoteMeta[]): NoteMeta[] {
   const sort = query.sort;
   if (sort) {
     hits.sort((a, b) => {
+      const ka = fieldOf(a, sort.field);
+      const kb = fieldOf(b, sort.field);
+      // notes missing the field sort last in either direction, instead of
+      // flooding the top of every ascending sort
+      if (!ka || !kb) return Number(!ka) - Number(!kb);
       const cmp =
         sort.field === "mtime" || sort.field === "file.mtime"
           ? a.mtime - b.mtime
-          : fieldOf(a, sort.field).localeCompare(fieldOf(b, sort.field), undefined, {
-              numeric: true,
-            });
+          : ka.localeCompare(kb, undefined, { numeric: true });
       return sort.desc ? -cmp : cmp;
     });
   }

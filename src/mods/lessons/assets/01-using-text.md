@@ -54,6 +54,14 @@ Settings → files); click a date to open or create that day's note.
 line to *today's* note without leaving whatever you're doing, then returns
 focus to where you were.
 
+## templates
+
+A template is just a file in a `templates/` folder at the root of your
+notes — no placeholder syntax, what's in the file is what you get.
+`Ctrl+Shift+I` inserts one at the cursor; right-click a folder → **new file
+from template** starts a fresh note from one. The picker offers to create
+`templates/` with a sample the first time, so the feature explains itself.
+
 ## writing without the furniture
 
 `Alt+Z` (or F11) is zen mode: fullscreen, chrome hidden. Turn on typewriter
@@ -81,8 +89,8 @@ comment block at the top.
 ## extending it
 
 Everything past the core editor — publishing, the daily calendar, mermaid
-diagrams, dataview queries, LaTeX compiling, even this lessons folder — is a
-**mod**: a small TypeScript module talking to a stable `TextAPI`. See
-`MOD_API.md` at the root of the `text` repository if you want to write your
-own; the [[06-mermaid]] and `07-latex-graph-theory.tex` lessons are worked
-examples of two mods in actual use.
+diagrams, dataview queries, templates, the corkboard, LaTeX compiling, even
+this lessons folder — is a **mod**: a small TypeScript module talking to a
+stable `TextAPI`. See `MOD_API.md` at the root of the `text` repository if
+you want to write your own; the [[06-mermaid]], [[08-dataview]], and
+[[09-corkboard]] lessons are worked examples of mods in actual use.

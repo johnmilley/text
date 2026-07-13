@@ -720,10 +720,19 @@ function buildTextApi(): TextAPI {
       listTree: (r) => api.listTree(r),
       readText: (path) => api.readFile(path).then((f) => f.content),
       readBase64: (path) => api.readBase64(path),
-      writeText: (path, content) => api.writeTextFile(path, content),
+      // mod writes under the root refresh the sidebar themselves — the web
+      // build has no fs watcher to do it (and on desktop the extra refresh
+      // is a fingerprint no-op)
+      writeText: async (path, content) => {
+        await api.writeTextFile(path, content);
+        if (root && path.startsWith(root + "/")) void refreshTree();
+      },
       copyFile: (src, dest) => api.copyFile(src, dest),
       createDir: (path) => api.createDir(path),
-      createFile: (path) => api.createFile(path),
+      createFile: async (path) => {
+        await api.createFile(path);
+        if (root && path.startsWith(root + "/")) void refreshTree();
+      },
       pickDirectory: (opts) => pickFolder(opts?.title ?? "Choose folder"),
     },
     render: { markdownToHtml: (text) => api.renderPreview(text) },
@@ -758,10 +767,17 @@ function loadMods() {
 
 // ------------------------------------------------------------- tree sorting
 
+/** Per-folder manual orders from `.corkboard` files (the corkboard mod's
+ * drag-to-reorder), refreshed with the tree. dir path → ordered names. */
+let treeOrders: Record<string, string[]> = {};
+
 /** Re-order the fetched tree in place. The backend hands us dirs-first,
  * name-ascending; that order stands, except inside the daily-notes folder
- * where date-shaped names (YYYY / MM / YYYY-MM-DD) show latest first. */
-function sortTree(entries: api.Entry[], inDaily: boolean) {
+ * where date-shaped names (YYYY / MM / YYYY-MM-DD) show latest first, and in
+ * folders with a corkboard order, which wins outright — the sidebar mirrors
+ * the board, files and folders interleaved; names not on the board keep the
+ * default order after them. */
+function sortTree(entries: api.Entry[], dir: string, inDaily: boolean) {
   const dailyPath = `${root}/${config.daily_dir}`;
   const dirs = entries.filter((e) => e.is_dir);
   const files = entries.filter((e) => !e.is_dir);
@@ -773,8 +789,14 @@ function sortTree(entries: api.Entry[], inDaily: boolean) {
   }
   entries.length = 0;
   entries.push(...dirs, ...files);
-  for (const dir of dirs) {
-    if (dir.children) sortTree(dir.children, inDaily || dir.path === dailyPath);
+  const order = treeOrders[dir];
+  if (order) {
+    const rank = new Map(order.map((n, i) => [n, i]));
+    const r = (e: api.Entry) => rank.get(e.name) ?? order.length; // unlisted: after
+    entries.sort((a, b) => r(a) - r(b)); // stable — ties keep the order set above
+  }
+  for (const d of dirs) {
+    if (d.children) sortTree(d.children, d.path, inDaily || d.path === dailyPath);
   }
 }
 
@@ -783,7 +805,12 @@ let treeFingerprint = "";
 async function refreshTree() {
   if (!root) return;
   tree = await api.listTree(root);
-  sortTree(tree, false);
+  try {
+    treeOrders = await api.folderOrders(root);
+  } catch {
+    treeOrders = {}; // never let a bad .corkboard take the tree down
+  }
+  sortTree(tree, root, false);
   flatten(tree);
   // Skip the DOM rebuild when nothing structural changed (autosaves trip the
   // fs watcher constantly); rebuilding mid-interaction eats mouse presses.

@@ -91,6 +91,15 @@ more text.
     themes_dir_path: () => "/vault/.themes",
     window_init_params: () => null,
     list_tree: () => TREE,
+    // real backend: dir path → order from that dir's .corkboard file
+    folder_orders: () => {
+      const out = {};
+      for (const [path, text] of Object.entries(FILES)) {
+        if (!path.endsWith("/.corkboard")) continue;
+        try { out[path.slice(0, -"/.corkboard".length)] = JSON.parse(text).order; } catch {}
+      }
+      return out;
+    },
     watch_root: () => null,
     read_file: ({ path }) => {
       if (!(path in FILES)) throw new Error(`no such file: ${path}`);

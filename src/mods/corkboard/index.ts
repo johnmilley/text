@@ -6,7 +6,9 @@
  * to the note's frontmatter); clicking a card opens the note; folder cards
  * drill down, with a breadcrumb to climb back out. Cards drag to reorder —
  * the order lives in a hidden `.corkboard` file in the folder, never in the
- * notes themselves.
+ * notes themselves. The sidebar tree follows it too (core reads the same
+ * files via folderOrders — see sortTree in main.ts), so rearranging cards
+ * rearranges the file browser.
  *
  * Open it from a folder's right-click menu, the tree background, or
  * Ctrl+Shift+D (the folder of the open note, or the root — K would be the

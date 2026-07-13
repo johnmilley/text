@@ -107,6 +107,11 @@ export interface NoteMeta {
  */
 export interface Backend {
   listTree(root: string): Promise<Entry[]>;
+  /** Per-folder manual orders — the `.corkboard` files the corkboard mod
+   * writes, as dir path → ordered entry names. The sidebar tree applies them
+   * (see sortTree in main.ts). Call after listTree: the Dropbox adapter
+   * discovers the files during that listing. */
+  folderOrders(root: string): Promise<Record<string, string[]>>;
   readFile(path: string): Promise<FileContent>;
   readImage(path: string): Promise<ImageContent>;
   writeFile(path: string, content: string, expectedMtime: number | null): Promise<WriteResult>;
@@ -149,6 +154,7 @@ export const setSingleLineBreaks = (v: boolean) => {
 /** The desktop backend: every call is a Tauri command into the Rust core. */
 const tauriBackend: Backend = {
   listTree: (root) => invoke<Entry[]>("list_tree", { root }),
+  folderOrders: (root) => invoke<Record<string, string[]>>("folder_orders", { root }),
   readFile: (path) => invoke<FileContent>("read_file", { path }),
   readImage: (path) => invoke<ImageContent>("read_image", { path }),
   writeFile: (path, content, expectedMtime) =>
@@ -202,6 +208,7 @@ export const isTauri =
 const backend: Backend = isTauri ? tauriBackend : webBackend;
 
 export const listTree = (root: string) => backend.listTree(root);
+export const folderOrders = (root: string) => backend.folderOrders(root);
 export const readFile = (path: string) => backend.readFile(path);
 export const readImage = (path: string) => backend.readImage(path);
 export const writeFile = (path: string, content: string, expectedMtime: number | null) =>

@@ -18,6 +18,8 @@ import academicBook from "./assets/04-academic-book.md?raw";
 import presentation from "./assets/05-presentation.md?raw";
 import mermaidLesson from "./assets/06-mermaid.md?raw";
 import latexLesson from "./assets/07-latex-graph-theory.tex?raw";
+import dataviewLesson from "./assets/08-dataview.md?raw";
+import corkboardLesson from "./assets/09-corkboard.md?raw";
 
 const FILES: [string, string][] = [
   ["00-readme.md", readme],
@@ -31,6 +33,8 @@ const FILES: [string, string][] = [
   ["05-presentation.md", presentation],
   ["06-mermaid.md", mermaidLesson],
   ["07-latex-graph-theory.tex", latexLesson],
+  ["08-dataview.md", dataviewLesson],
+  ["09-corkboard.md", corkboardLesson],
 ];
 
 async function generateLessons(app: TextAPI) {

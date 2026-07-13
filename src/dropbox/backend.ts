@@ -253,9 +253,61 @@ async function writeFile(
   }
 }
 
+// --------------------------------------------------------- folder orders
+
+/** `.corkboard` file metas seen by the last listTree, keyed by root. */
+const corkMetas = new Map<string, (dbx.FileMetadata & { ".tag": "file" })[]>();
+/** path_lower → parsed order, reused until the file's rev changes. */
+const corkCache = new Map<string, { rev: string; order: string[] }>();
+
+/**
+ * Per-folder manual orders (the corkboard mod's `.corkboard` files), dir
+ * path → ordered names. Piggybacks on listTree — the recursive listing
+ * already reports every `.corkboard` — so only files whose rev changed are
+ * downloaded. Call after listTree (refreshTree in main.ts does).
+ */
+async function folderOrders(root: string): Promise<Record<string, string[]>> {
+  const rootN = norm(root);
+  const out: Record<string, string[]> = {};
+  for (const m of corkMetas.get(rootN.toLowerCase()) ?? []) {
+    let hit = corkCache.get(m.path_lower);
+    if (!hit || hit.rev !== m.rev) {
+      hit = { rev: m.rev, order: [] };
+      try {
+        const parsed: unknown = JSON.parse(await (await dbx.download(m.path_lower)).resp.text());
+        const names = (parsed as { order?: unknown }).order;
+        if (Array.isArray(names)) {
+          hit.order = names.filter((n): n is string => typeof n === "string");
+        }
+      } catch {
+        // unreadable/malformed — treat as no order
+      }
+      corkCache.set(m.path_lower, hit);
+    }
+    if (hit.order.length) {
+      // key by the same strings the tree uses: the root as passed in, or a
+      // subfolder's path_display
+      const parentLower = parentOf(m.path_lower);
+      out[parentLower === rootN.toLowerCase() ? rootN : parentOf(m.path_display)] = hit.order;
+    }
+  }
+  return out;
+}
+
 async function listTree(root: string): Promise<Entry[]> {
   const rootN = norm(root);
   const entries = await dbx.listFolderAll(rootN, true);
+  // remember the corkboard order files (hidden, so filtered out below) that
+  // sit in *visible* folders — folderOrders reads them
+  corkMetas.set(
+    rootN.toLowerCase(),
+    entries.filter(
+      (e): e is dbx.FileMetadata & { ".tag": "file" } =>
+        e[".tag"] === "file" &&
+        e.name === ".corkboard" &&
+        !hasHiddenSegment(relTo(rootN, parentOf(e.path_display))),
+    ),
+  );
   const dirs = new Map<string, Entry>();
   const top: Entry = { name: "", path: rootN, is_dir: true, mtime: 0, children: [] };
   dirs.set(rootN.toLowerCase(), top);
@@ -327,6 +379,7 @@ const smartcaseIndex = (line: string, query: string, ci: boolean): number =>
 
 export const dropboxBackend: Backend = {
   listTree,
+  folderOrders,
   writeFile,
 
   readFile: async (path) => {

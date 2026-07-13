@@ -29,9 +29,10 @@ Four mods ship as worked examples, deliberately different in shape:
 - [`src/mods/corkboard`](src/mods/corkboard) — a **view** mod: a
   Scrivener-style index-card board for a folder. Synopses come from (and are
   edited back into) each note's `synopsis:` frontmatter; drag-to-reorder
-  persists in a hidden `.corkboard` file, never in the notes. Built entirely
-  on existing seams (`ui.info` + `fs` + `openNote`) — proof a whole view fits
-  the API.
+  persists in a hidden `.corkboard` file, never in the notes — and the
+  sidebar tree adopts that order too (the host reads the same files via
+  `folderOrders`). Built entirely on existing seams (`ui.info` + `fs` +
+  `openNote`) — proof a whole view fits the API.
 
 Together they exercise both kinds of extension point: discrete commands / menu
 items / toolbar buttons, and content rendered into the editor.
