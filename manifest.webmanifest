@@ -1,6 +1,6 @@
 {
-  "name": "text",
-  "short_name": "text",
+  "name": "pt",
+  "short_name": "pt",
   "description": "Plain-markdown notes, straight from your Dropbox.",
   "start_url": "./",
   "scope": "./",
