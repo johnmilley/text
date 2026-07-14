@@ -41,6 +41,12 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
   // (peek) and only a second tap (or the panel's open button) opens it; a mouse
   // keeps click-to-open, since hovering already previews the day
   let touchLast = false;
+  // the last deliberate selection (keyboard nav, touch peek, "today"), as
+  // opposed to a hover preview — mouseleave reverts to this so the highlight
+  // doesn't get stuck on whatever day the pointer last passed over
+  let baseYear = year;
+  let baseMonth = month;
+  let baseSel = sel;
 
   app.ui.info((box) => {
     box.classList.add("calendar-box");
@@ -108,9 +114,16 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
     };
 
     // render the month; `focusSel` puts keyboard focus on the selected day so
-    // arrow navigation continues (set for keyboard-driven renders + first show)
-    const render = (focusSel: boolean) => {
+    // arrow navigation continues (set for keyboard-driven renders + first show).
+    // `preview` marks a hover-only render, which leaves the base selection
+    // (what mouseleave reverts to) untouched.
+    const render = (focusSel: boolean, preview = false) => {
       sel = Math.min(sel, daysInMonth(year, month));
+      if (!preview) {
+        baseYear = year;
+        baseMonth = month;
+        baseSel = sel;
+      }
       title.textContent = `${MONTHS[month]} ${year}`;
       grid.replaceChildren();
       for (const d of ["mo", "tu", "we", "th", "fr", "sa", "su"]) {
@@ -165,13 +178,23 @@ export function openCalendar(app: TextAPI, host: CalendarHost) {
         cell.addEventListener("mouseenter", () => {
           if (touchLast || sel === d) return;
           sel = d;
-          render(false);
+          render(false, true);
         });
         grid.appendChild(cell);
       }
       updatePanel(dateStr(year, month, sel));
       if (focusSel) selCell?.focus({ preventScroll: true });
     };
+    // once the pointer leaves the grid entirely, drop the hover preview and
+    // fall back to the last deliberate selection instead of leaving whatever
+    // day was last hovered stuck highlighted
+    grid.addEventListener("mouseleave", () => {
+      if (year === baseYear && month === baseMonth && sel === baseSel) return;
+      year = baseYear;
+      month = baseMonth;
+      sel = baseSel;
+      render(false);
+    });
 
     const selDate = () => dateStr(year, month, sel);
 

@@ -1,5 +1,5 @@
 # text — iA Writer Dark: the signature minimalist look, inverted. Near-black
-# paper, warm grey ink, one calm blue accent. See text-dark.toml for tokens.
+# paper, warm grey ink, one calm blue accent. See pt-dark.toml for tokens.
 
 name = "iA Writer Dark"
 dark = true

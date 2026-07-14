@@ -1,5 +1,5 @@
 # text — Night Owl: deep blue dark theme after Sarah Drasner's palette.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Night Owl"
 dark = true

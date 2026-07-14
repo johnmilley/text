@@ -44,7 +44,7 @@ more text.
   };
 
   const CONFIG = {
-    theme: "text-dark",
+    theme: "pt-dark",
     font_size: 15,
     ui_font_size: 13,
     editor_font: "",
@@ -68,7 +68,10 @@ more text.
     preview_replaces_editor: false,
     toolbar_capture: true,
     toolbar_calendar: true,
+    toolbar_corkboard: true,
+    toolbar_scratchpad: true,
     toolbar_preview: true,
+    toolbar_order: ["capture", "calendar", "corkboard", "scratchpad"],
     keys: {},
   };
 
@@ -81,7 +84,7 @@ more text.
     { name: "paper.tex", path: "/vault/paper.tex", is_dir: false, mtime: 1, children: null },
   ];
 
-  const THEME = { id: "text-dark", name: "text dark", dark: true, colors: {}, fonts: {}, css: null };
+  const THEME = { id: "pt-dark", name: "pt dark", dark: true, colors: {}, fonts: {}, css: null };
 
   let cbId = 0;
   const handlers = {

@@ -1,5 +1,5 @@
 # text — Gruvbox: warm retro-groove dark (github.com/morhetz/gruvbox).
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Gruvbox"
 dark = true

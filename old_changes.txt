@@ -1,0 +1,329 @@
+## Changes (text)
+## text
+
+
+
+
+(top backlog clear — everything below is shipped)
+
+Shipped 2026-07-12 (mobile keyboard + highlight + housekeeping):
+- ==highlight== now renders everywhere (editor, preview, publish/PDF, web
+  build), i=. Every theme gets a `highlight` color token — your
+  keepers each got a tuned wash (github-light uses GitHub's actual marker
+  color). `==**bold** inside==` works; `a == b` stays literal; never in code.
+- md keyboard bar remodeled on your iA screenshot: # (each tap deepens the
+  heading — the H-toggle is gone), B I ` A(highlight, wears the theme wash)
+  [[ ]] • ☑ ↺ ↻, and a ⌘ sheet holding the second-string stuff: search, link,
+  quote, strikethrough (backtick took its old slot in the main row), hide
+  keyboard. Positioning now tracks the keyboard every frame — the event-
+  driven version was what let it strand mid-screen on iOS.
+- desktop image paste: when WebKitGTK hands the editor an empty paste event
+  (how clipboard screenshots often arrive on Linux), the app now reads the
+  image straight from the native clipboard (new read_clipboard_image command,
+  arboard). Same pasted-<timestamp>.png naming as mobile.
+- fullscreen slides in light mode: the deck's background rule was riding a
+  selector list with :-webkit-full-screen, which Firefox rejects wholesale —
+  so the deck went transparent over the black fullscreen backdrop. Split the
+  rules; slides now keep their paper color (and it was invisible in dark mode
+  because black-on-black).
+- publish button left the file bar; still on every folder right-click,
+  Ctrl+Shift+S, and now settings → help.
+- themes trimmed 39 → 19: text pair, ia-writer pair, emotion pair,
+  monokai-calm, dracula, nord/nord-light, gruvbox/gruvbox-light, solarized
+  pair, catppuccin mocha/latte, tokyo night/day, github-light. Retired ones
+  vanish from your themes folder ONLY if you never edited them (an edited
+  copy is yours and stays; it keeps working as a custom theme).
+- dataview grew WHERE: `TABLE status, due FROM #course WHERE status = active
+  AND due <= 2026-09-01 SORT due` — ops = != > < >= <= contains, AND-chained.
+- file manager: added "copy to folder…" (native picker) — that's also the
+  answer to passing files between instances: copy into the other window's
+  folder and its watcher shows it instantly. (Tree drag-to-move between
+  folders already existed, pointer-based. A real cross-window drag can't be
+  done reliably in webkit2gtk — HTML5 dnd fights the native file-drop hook.)
+- also shipped, from the older text_changes.md list: corkboard (right-click a
+  folder or Ctrl+Shift+D — index cards w/ frontmatter synopses, drag to
+  reorder, drill into subfolders) and window position/size now persist across
+  launches (Wayland note: compositors get final say on position; size always
+  restores).
+
+reference screenshot for the keyboard round:
+  ![[pasted-2026-07-12-140112.png]]
+
+Shipped 2026-07-08 (calendar browse-before-open on touch):
+- on touch, tapping a calendar day now SELECTS it (peek) instead of jumping
+  into the document — you can browse days freely, and a prominent "open <date>"
+  button in the panel (plus the "on this day" links) does the actual opening.
+  Mouse keeps click-to-open (hover already previews).
+
+Shipped 2026-07-08 (calendar finds all entries + icon polish):
+- calendar now recognises a daily note by the DATE IN ITS FILENAME anywhere
+  under the root, instead of reconstructing daily_dir/YYYY/MM/date.md. That
+  reconstruction silently missed older entries whenever the web root + daily_dir
+  didn't compose to the exact stored path (a desktop/web root mismatch), so
+  "past this month" and "on this day" looked empty. Tapping a day opens the
+  actual note wherever it lives; empty days still create the canonical path.
+- capture icon is now a journal/notebook; the edit/preview toggle uses the
+  pencil for "edit" (paired with the eye for "preview").
+
+Shipped 2026-07-08 (top-bar redesign + mobile edit/preview):
+- unified top bar (desktop + phone), context-aware: ◧ drawer, ‹ back / ›
+  forward (shown with a note open, disabled when no history), title, then
+  edit/preview toggle (eye ↔ pencil) + capture + calendar + settings icons.
+  Same icons everywhere.
+- dropped the "today" button (reach today via capture or the calendar) on
+  every platform; removed the daily mod's today/calendar toolbar buttons and
+  the daily_note command (calendar stays, as a top-bar icon + Ctrl+Shift+C).
+- file browser: the text footer is gone; mod actions (publish) now render as
+  icon buttons in the browser's top toolbar (addToolbarButton gained an
+  optional `icon`). Settings moved to the top bar.
+- phones are single-pane: preview REPLACES the editor (a real edit/preview
+  toggle, not side-by-side), and the split second pane is disabled. Desktop
+  keeps side-by-side preview and split.
+
+Shipped 2026-07-08 (mobile follow-ups: capture + zoom + caret):
+- quick capture (Drafts replacement): a pencil button in the top bar (and the
+  quick_capture command, Ctrl+Shift+J) opens/creates today's daily note and
+  appends a blank line + "Jul 8, 9:31 AM: " at the end, caret placed after it
+  with the keyboard up. Works from any file/view.
+- iOS focus-zoom fixed: the editor renders <16px, which makes Safari zoom in on
+  tap (and shove the top bar offscreen). The mobile web build now floors the
+  editor font at 16px — max(16px, configured size).
+- markdown-keyboard caret: heading/list buttons put the caret *after* the
+  inserted marker (ready to type) instead of behind it (selection mapped with
+  assoc +1).
+
+Shipped 2026-07-08 (mobile: top-bar actions + markdown keyboard):
+- the phone web build drops the bottom action bar for a top bar + files drawer
+  + full-width editor. today / calendar / settings are icon buttons in the
+  title bar (web, ≤700px), next to an enlarged ◧ drawer toggle. The editor's
+  centered measure column is dropped on phones — text spans the device width
+  with slim 14px gutters.
+- markdown accessory keyboard: a 1Writer-style thumb row (heading, bold,
+  italic, code, bullet, task, quote, wikilink, link) floats over the on-screen
+  keyboard while editing, positioned with visualViewport. Buttons wrap the
+  selection or prefix the line and keep the editor's selection/focus.
+- following [[wikilinks]] on touch: a contextual "open →" chip appears on the
+  key bar when the caret sits inside a wikilink (a plain tap only moves the
+  caret). Desktop still follows with Ctrl+click / Ctrl+Enter; preview-mode
+  taps already navigate.
+
+Shipped 2026-07-07 (folding + brighter chrome + icon crop; 0.2.9):
+- foldable markdown headings: chevrons in a slim gutter left of the text fold
+  a heading's whole section (##'s section ends at the next ##/#); code fences,
+  lists, quotes, and multi-line paragraphs fold too. Folded text collapses to
+  a clickable ⋯ pill. Ctrl+Shift+[ / Ctrl+Shift+] fold/unfold at the cursor
+  (heading line), Ctrl+Alt+[ / ] fold/unfold everything. Folds survive tab
+  switches; edits above a fold leave it alone.
+- brighter chrome: toolbar/tab/title-bar/tree-folder text was fg-muted, which
+  most themes tune for de-emphasis, not for UI you read constantly. A derived
+  --fg-chrome token (fg-muted nudged 42% toward fg, so it brightens dark
+  themes and darkens light ones) now colors the title bar, sidebar tabs and
+  footer, folder row, tree dirs, tab bar, pane/preview/image/pdf toolbars,
+  and calendar buttons. Hints and captions stay muted. Themes can override
+  --fg-chrome in their raw css.
+- app icon zoomed in: the tiled-cats source is cropped to its center 70%, so
+  the cats actually read at taskbar sizes. All sizes regenerated via
+  `tauri icon` from the cropped _source-icon.png.
+
+Shipped 2026-07-03 (launch speed + line-width rethink; 0.2.8):
+- launch no longer waits for the whole vault: the last session's tabs open
+  immediately while the folder scan, file watcher, and config save run in the
+  background. Tabs whose files vanished while the app was closed are pruned
+  once the scan lands (the active one falls back to the first note).
+- the vault scan, search, and backlinks moved off the app's main thread — on
+  Tauri, synchronous commands run on the UI thread, so a big folder froze the
+  window at launch and on every autosave-triggered rescan. Unknown-extension
+  text sniffing (an 8 KiB read per file, per rescan) is now cached by mtime.
+- side effect worth knowing: a tab whose file still exists but sits outside
+  the (possibly vanished) folder now reopens as a visitor tab instead of
+  being dropped.
+- margins/wrapping rethink: text now wraps at a line width (default 80
+  characters) and the column centers when the window is wider — no more
+  edge-to-edge lines on a big monitor. settings → appearance → "line width"
+  (config line_width; 0 = fill the window, the old behaviour).
+  editor_margin remains as the minimum edge spacing. The same measure
+  applies to the split pane and the markdown preview; zen mode caps at
+  68ch as before (narrower if your line width is narrower).
+
+Shipped 2026-06-30 (open loose files + new-tab page + zen typewriter + KDE icon):
+- open a file without changing the folder: "open file" on the welcome screen or
+  Alt+O opens any file (even outside the current folder) in a new tab — the
+  plain-notepad half of the app. A file from outside the folder is a "visitor"
+  tab: italic label with a ↗ marker, never joins the tree or backlinks. With no
+  folder open it opens standalone.
+- context-aware new-tab / welcome screen: with no folder it offers open-folder /
+  open-file; with a folder open it adds new note / open file / switch folder, a
+  recent-files list, and an inline shortcut cheatsheet (live combos, so
+  rebindings show through) to teach the keys over time.
+- customizable new-tab page: a _newtab.md at the folder root renders as the
+  new-tab body (through the normal markdown preview pipeline).
+- new "iA Writer Dark" theme (near-black paper, warm grey ink, calm blue accent).
+- zen mode settings (settings → zen mode): "keep sidebar in zen" shows the file
+  tree in fullscreen; "typewriter scrolling" on/off; "cursor position" upper
+  third (default) or middle. Config keys zen_sidebar, zen_typewriter,
+  typewriter_anchor.
+- typewriter no longer fights text selection: it only recenters on a plain
+  caret, so dragging or shift-selecting a range holds still (recentring resumes
+  once the selection collapses).
+- Linux/KDE app icon fix: the icon name "text" collided with Breeze's built-in
+  generic icon, so KDE showed a document glyph instead of the app icon. Ships a
+  uniquely-named com.johnathan.text icon (via a desktop template + packaged icon
+  files) while keeping app_id/StartupWMClass "text" for taskbar matching.
+
+
+Shipped 2026-06-24 (wysiwyg line breaks):
+- new setting "single line breaks" (settings → editing; config key
+  single_line_breaks, off by default). When on, every newline in the source
+  renders as a <br> in the preview/exported HTML instead of CommonMark's
+  default of joining wrapped lines into one paragraph — so the rendered output
+  matches the editor line-for-line. Applies to preview, published sites, and
+  PDF (all go through the one pulldown-cmark renderer).
+
+
+Shipped 2026-06-20 (move shortcut + dialog focus + calendar keyboard):
+- Ctrl+M moves the selected file/folder (tree selection, else the open file)
+  to another folder — rebindable like the other shortcuts.
+- context-menu actions (move/rename) no longer steal focus from the dialog
+  they open: the menu item preventDefaults its mousedown, so the picker/prompt
+  input is focused and ready to type without a click.
+- after rename or move, keyboard focus returns to the file tree with the
+  renamed/moved row selected, so arrow-key navigation continues.
+- calendar: opening it lands a keyboard selection on today — arrows move day to
+  day (±a week vertically) across months, Enter opens the day; PageUp/Down page
+  months, Shift+PageUp/Down page years.
+- calendar "on this day" is no longer a toggle: the panel is always visible and
+  tracks the selected day, listing that date's notes from other years.
+
+Shipped 2026-06-18 (right-click + tabs + single-file publish polish):
+- publish a single note: right-click a note → "publish…". Builds a one-note
+  site with only the assets that note embeds/links (resolved against the whole
+  vault, so central image folders still bundle); no folder-listing pages.
+- context-menu label renamed "publish as website…" → "publish…" (folder/root).
+- right-click menu no longer clips off-screen near the bottom/right edge — it
+  clamps into the viewport after measuring.
+- right-click items below the open/create block are now sorted alphabetically
+  (mod items included).
+- "+" new-tab button now sits right after the last tab (Firefox-style) instead
+  of pinned to the far right — #tabs sizes to its tabs (flex: 0 1 auto).
+- dropping any file (pdf, zip, …) onto a note now imports it into the assets
+  folder (image_dir) and inserts ![[name]] — images embed, everything else
+  renders as an attachment link. Previously only images/SVG were accepted.
+
+## Still open
+
+Mobile / PWA (iPhone) — capture + browse/read, Dropbox-backed. Plan picked
+2026-06-17: reuse the CodeMirror frontend in mobile Safari, swap the storage
+layer instead of writing a native app. No App Store.
+- [done] Phase 1: api.ts is now a backend selector — `Backend` interface +
+  tauriBackend (desktop, unchanged) + webBackend stub. isTauri picks one.
+- [done] Phase 2: Dropbox adapter (src/dropbox/) implementing Backend. PKCE
+  OAuth (app key only — never embed the secret), refresh token in
+  localStorage. Writes use Dropbox rev-based "update" mode: atomic
+  server-side conflict detection (fixes the 1Writer/Drafts journal
+  collisions). Client-side ports: search/backlinks/dataview over a rev-keyed
+  content cache, marked-based renderPreview matching render.rs's data-*
+  contract (tested vs the same cases), bundled themes (TOML via vite glob),
+  config in localStorage. Desktop bundle unaffected (lazy dynamic import).
+  Test harness: /dropbox-test.html under `npm run dev` — connect, list,
+  read, search, render, and a conflict round-trip (stale write must bounce).
+- [done] Phase 3 (build): PWA shell. src/platform.ts is the desktop/web seam
+  (window chrome, dialogs, open-externally, fs events) — main.ts no longer
+  imports Tauri plugins directly. Web: connect screen (src/webboot.ts),
+  Dropbox folder/file browser on the modal picker, open-externally via
+  files/get_temporary_link (video/audio stream in a new tab), pagehide/
+  visibility autosave flush, manifest + icons + service worker (offline app
+  shell, network-first HTML), safe-area insets, phone drawer sidebar
+  (auto-closes on open-file). Verified headless: desktop via the IPC stub
+  (boots, opens files), web gate at iPhone viewport.
+- [next] Phase 3 (deploy): host on GitHub Pages (/deploy skill), bake
+  VITE_DROPBOX_APP_KEY into the hosted build, add the hosted redirect URI
+  in the App Console, then A2HS on the iPhone.
+- YOU: in the Dropbox App Console add redirect URIs
+  (http://localhost:1420/ and http://localhost:1420/dropbox-test.html for
+  dev; the hosted URL later); app needs "Full Dropbox" access, scopes:
+  account_info.read, files.metadata.read, files.content.read/write.
+
+Professional / textbook direction (2026-07-07, user brief: class notes,
+mermaid, presentations, textbook-quality exports; "readability over folders,
+don't get cutesy"):
+- [done 2026-07-07] Publish v2 — export design overhaul (HTML + PDF only).
+  Textbook layout: no sidebar; one serif 65ch column; breadcrumb running
+  head whose first crumb is always the contents page; prev/next foot nav
+  along the reading order (notes before subfolders, nameOrder — the ToC
+  top-to-bottom, shared by HTML nav and PDF section order via
+  site.ts buildToc/readingOrder). Root contents page always exists
+  (contents.html when a root README claims index.html); every folder gets a
+  section contents page. PDF: title page + linked contents + one section
+  per page break, same stylesheet. Restyling: _export.css at the vault root
+  loads after the built-in sheet (emitted as _assets/custom.css, inlined in
+  PDFs); every design decision is a CSS token incl. --image-bg/--image-pad
+  (matte behind transparent PNGs). Style guide: docs/EXPORT_STYLE.md.
+  Verified end-to-end headless (fixture vault → spine walk, breadcrumbs,
+  cross-page wikilink anchors, broken-link fallback, screenshots).
+- [done 2026-07-07] Mermaid: src/mods/mermaid registers a block renderer
+  (```mermaid fences render as SVG below the fence in editor + preview;
+  source never rewritten; errors show inline, muted). Theme follows the UI
+  (bg-luminance check). Exports: ssg render.ts inlines diagrams as static
+  SVG ("neutral" theme, print-clean, no script in published pages; a bad
+  diagram stays a readable code fence). Library lazy-loads in its own chunk
+  on first use. Verified headless: editor widget screenshot + export SVG.
+- Slides/presentation polish for teaching use (slides mod shipped earlier).
+- docs/THEMES.md refresh + a proper style guide covering app themes AND
+  export themes (they're separate surfaces).
+- Web/mobile round 2:
+  * [done 2026-07-07] web search speed: content cache persists in IndexedDB
+    (src/dropbox/store.ts) and syncs via a saved list_folder cursor — after
+    the first full sync a search costs one delta call; page reloads
+    re-download nothing (verified: cold {list:1,dl:3} → reload {cont:1,dl:0}).
+    Cursor expiry falls back to a full relist; private-mode (no IDB)
+    degrades to the old memory-only behavior.
+  * [done 2026-07-07] capture-first mobile UI: a fixed bottom action bar on
+    phones (web build, <=700px) — new / today / search / files. "today" runs
+    the daily-note command (the journaling flow the phone is for); files
+    toggles the drawer (still auto-closes on open); search opens the drawer
+    on the search pane focused. Safe-area padded; the editor column and the
+    drawer clear the bar. Verified headless at iPhone size against a fake
+    Dropbox (daily-note create+open, drawer, live search).
+  * verify copy/paste-image on iOS Safari end-to-end (editor.importImageBlob
+    → writeBase64 path exists; needs a real-device pass).
+
+(rest of backlog clear — everything else shipped.)
+
+Shipped 2026-06-16 (sidebar side + folder icon + dataview preview):
+- sidebar can sit on the left or right edge — toggle in settings (appearance);
+  the divider/resizer mirror to match. config: sidebar_right
+- folder-name switcher now leads with a thin folder icon (theme-colored via an
+  SVG mask) instead of the ▾ caret
+- the markdown preview pane (Ctrl+Shift+M) renders dataview blocks' results,
+  not the raw query — block renderers now run in preview as well as the editor
+  (see MOD_API.md). New Emotion Side B light/dark themes added too.
+
+Shipped 2026-06-15 (mods + UX batch):
+- four reference mods now: ssg (publish: local / GitHub Pages / PDF), dataview,
+  toc (generate TOC.md), daily (daily notes + month calendar) — see MOD_API.md
+- preview theme picker + magnification removed; the "preview" banner stays
+- publish nav lists folders + notes only (no asset filenames), both outputs
+- PDF export: a real front ToC (folders → subfolders → note filenames); no more
+  folder-listing pages dumped one-per-page; asset names not printed
+- Ctrl+Shift+N creates a new folder (new window moved to Ctrl+Alt+N)
+- F2 renames the selected tree row / open file (the name is preselected)
+- opening a file returns to the top
+
+Earlier batch (already shipped): Ctrl+Shift+Enter line-above; md_reference.md;
+split/preview in zen; preview banner; tree open-in-split / move-to / find-
+references (incl. media); Ctrl+P recents-first; Ctrl+O in-app folder switcher;
+root-first file open.
+
+
+---
+
+claude: no need to read below this
+
+
+(previous batch done — see history_changes.txt; notes/questions below)
+
+- comments on shared pages: implemented via giscus. One manual step left for you: install the giscus app on johnmilley/text-shares (github.com/apps/giscus) — GitHub has no API for that. Until then the comment box on shared pages stays blank.
+- shared-page comments map per page (GitHub Discussions thread per path), so students can report errata on the exact page. If you'd rather have inline/per-paragraph comments (hypothes.is style), say the word — different mechanism.
+- dataview is a deliberate subset (LIST/TABLE/TASK + FROM/SORT/LIMIT over frontmatter, tags, tasks). If you hit a query you miss from the real plugin, list it here.
+<!-- - markdown reference note replaces the 1-pager PDF idea: open it from settings and it brings the live preview up beside it. If you still want a printable PDF cheat-sheet, share the folder and print that page — the new print styles make it clean. -->
+

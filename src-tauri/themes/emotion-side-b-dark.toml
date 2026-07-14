@@ -1,6 +1,6 @@
 # text — Emotion Side B Dark: crisp charcoal page, the album's bright blue and
 # hot pink on the chrome. Blue on tabs/buttons/links/caret; pink on the active
-# file and selection (see the sibling .css). See text-dark.toml for tokens.
+# file and selection (see the sibling .css). See pt-dark.toml for tokens.
 
 name = "Emotion Side B Dark"
 dark = true

@@ -1,5 +1,5 @@
 # text — Terminal Amber: classic 80s monitor phosphor glow.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Terminal Amber"
 dark = true

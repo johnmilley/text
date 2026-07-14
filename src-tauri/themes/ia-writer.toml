@@ -1,5 +1,5 @@
 # text — iA Writer: clean minimalist white with the signature blue accent.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "iA Writer"
 dark = false

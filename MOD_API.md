@@ -1,6 +1,6 @@
-# Modding `text`
+# Modding `pt`
 
-`text` can be extended with **mods**: small TypeScript modules that add
+`pt` can be extended with **mods**: small TypeScript modules that add
 features through a stable, typed API (`TextAPI`) without touching the editor's
 internals. A mod registers commands, right-click menu items, toolbar buttons,
 and startup hooks, and reaches the filesystem / renderer / network through host

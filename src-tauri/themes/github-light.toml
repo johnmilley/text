@@ -1,5 +1,5 @@
 # text — GitHub Light: stark white and gray, straight off the platform.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "GitHub Light"
 dark = false

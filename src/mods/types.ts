@@ -1,5 +1,5 @@
 /**
- * The mod (extension) API for `text`.
+ * The mod (extension) API for `pt`.
  *
  * A mod is a small TypeScript module that receives a {@link TextAPI} object and
  * registers commands, right-click items, toolbar buttons, and startup hooks

@@ -1,5 +1,5 @@
 # text — Solarized Light: Ethan Schoonover's classic low-contrast prose palette.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Solarized Light"
 dark = false

@@ -1,12 +1,13 @@
 /**
  * Mobile markdown accessory bar (the "markdown keyboard"): a thumb row that
  * floats directly on top of the on-screen keyboard while the editor has focus
- * on a phone, iA-Writer-style. Plain-character buttons wrap the selection or
- * prefix the current line(s); `#` stacks (tap again to deepen the heading); a
- * contextual "open →" chip appears when the caret sits inside a [[wikilink]],
- * which is how links are followed on touch (a plain tap only moves the
- * caret). The ⌘ button opens a small sheet with the second-string actions
- * (search, link, quote, strikethrough, hide keyboard).
+ * on a phone, iA-Writer-style. The bar keeps only the essentials — undo/redo,
+ * `#` (tap again to deepen the heading), bold, italic — spread edge to edge
+ * so nothing scrolls; every other formatting action lives behind the ⌘
+ * button in a grid sheet above the bar (code/highlight/strike, wikilink/link,
+ * list/task/quote, search/hide keyboard). A contextual "open →" chip appears
+ * when the caret sits inside a [[wikilink]], which is how links are followed
+ * on touch (a plain tap only moves the caret).
  *
  * Web build only, and only when a soft keyboard is plausible (coarse pointer).
  * Positioning tracks window.visualViewport every animation frame while the
@@ -84,16 +85,11 @@ function heading(view: EditorView): void {
 type Btn = [string, string, (v: EditorView) => void, string?];
 
 const BUTTONS: Btn[] = [
+  ["↺", "Undo", (v) => void undo(v)],
+  ["↻", "Redo", (v) => void redo(v)],
   ["#", "Heading (tap again to deepen)", heading],
   ["B", "Bold", (v) => wrap(v, "**"), "mk-b"],
   ["I", "Italic", (v) => wrap(v, "*"), "mk-i"],
-  ["`", "Code", (v) => wrap(v, "`")],
-  ["A", "Highlight", (v) => wrap(v, "=="), "mk-hl"],
-  ["[[ ]]", "Wikilink", (v) => wrap(v, "[[", "]]")],
-  ["•", "Bullet list", (v) => linePrefix(v, "- ")],
-  ["☑", "Task", (v) => linePrefix(v, "- [ ] ")],
-  ["↺", "Undo", (v) => void undo(v)],
-  ["↻", "Redo", (v) => void redo(v)],
 ];
 
 export interface KeyBarOptions {
@@ -113,9 +109,9 @@ export function initMdKeyBar(opts: KeyBarOptions): void {
   const bar = document.createElement("div");
   bar.id = "md-keybar";
   bar.hidden = true;
-  const scroller = document.createElement("div");
-  scroller.className = "mk-scroll";
-  bar.appendChild(scroller);
+  const row = document.createElement("div");
+  row.className = "mk-row";
+  bar.appendChild(row);
 
   // contextual "open link" chip, at the left edge when a wikilink is under the
   // caret; hidden otherwise
@@ -130,7 +126,7 @@ export function initMdKeyBar(opts: KeyBarOptions): void {
   openBtn.addEventListener("click", () => {
     if (openTarget) opts.openWikilink(openTarget);
   });
-  scroller.appendChild(openBtn);
+  row.appendChild(openBtn);
 
   const mkBtn = (label: string, title: string, cls: string | undefined, run: () => void) => {
     const b = document.createElement("button");
@@ -145,7 +141,7 @@ export function initMdKeyBar(opts: KeyBarOptions): void {
   };
 
   for (const [label, title, action, cls] of BUTTONS) {
-    scroller.appendChild(
+    row.appendChild(
       mkBtn(label, title, cls, () => {
         const v = opts.activeView();
         if (v) action(v);
@@ -153,40 +149,73 @@ export function initMdKeyBar(opts: KeyBarOptions): void {
     );
   }
 
-  // ---- the ⌘ sheet: second-string actions, iA-style
+  // ---- the ⌘ sheet: everything that isn't a thumb essential, as a grid of
+  // glyph-over-label buttons sized for thumbs
   const sheet = document.createElement("div");
   sheet.className = "mk-sheet";
   sheet.hidden = true;
   const closeSheet = () => {
     sheet.hidden = true;
+    moreBtn.classList.remove("mk-on");
   };
-  const SHEET: [string, (v: EditorView) => void][] = [
-    ["search", () => opts.openSearch()],
-    ["link  [](url)", (v) => wrap(v, "[", "](url)")],
-    ["quote  >", (v) => linePrefix(v, "> ")],
-    ["strikethrough  ~~", (v) => wrap(v, "~~")],
-    ["hide keyboard", (v) => v.contentDOM.blur()],
+  // rows of [glyph, label, action, extra class]
+  const SHEET: [string, string, (v: EditorView) => void, string?][][] = [
+    [
+      ["`…`", "code", (v) => wrap(v, "`")],
+      ["A", "highlight", (v) => wrap(v, "=="), "mk-hl"],
+      ["S", "strike", (v) => wrap(v, "~~"), "mk-s"],
+    ],
+    [
+      ["[[ ]]", "wikilink", (v) => wrap(v, "[[", "]]")],
+      ["[](url)", "link", (v) => wrap(v, "[", "](url)")],
+    ],
+    [
+      ["•", "list", (v) => linePrefix(v, "- ")],
+      ["☑", "task", (v) => linePrefix(v, "- [ ] ")],
+      [">", "quote", (v) => linePrefix(v, "> ")],
+    ],
+    [
+      ["⌕", "search", () => opts.openSearch()],
+      ["⌄", "hide keyboard", (v) => v.contentDOM.blur()],
+    ],
   ];
-  for (const [label, action] of SHEET) {
-    const b = document.createElement("button");
-    b.className = "mk-cmd";
-    b.textContent = label;
-    b.tabIndex = -1;
-    b.addEventListener("pointerdown", (e) => e.preventDefault());
-    b.addEventListener("click", () => {
-      closeSheet();
-      const v = opts.activeView();
-      if (v) action(v);
-    });
-    sheet.appendChild(b);
+  for (const group of SHEET) {
+    const r = document.createElement("div");
+    r.className = "mk-sheet-row";
+    for (const [glyph, label, action, cls] of group) {
+      const b = document.createElement("button");
+      b.className = "mk-cmd" + (cls ? ` ${cls}` : "");
+      b.tabIndex = -1;
+      const g = document.createElement("span");
+      g.className = "mk-cmd-glyph";
+      g.textContent = glyph;
+      const l = document.createElement("span");
+      l.className = "mk-cmd-label";
+      l.textContent = label;
+      b.append(g, l);
+      b.addEventListener("pointerdown", (e) => e.preventDefault());
+      b.addEventListener("click", () => {
+        closeSheet();
+        const v = opts.activeView();
+        if (v) action(v);
+      });
+      r.appendChild(b);
+    }
+    sheet.appendChild(r);
   }
   bar.appendChild(sheet);
 
-  scroller.appendChild(
-    mkBtn("⌘", "More", undefined, () => {
-      sheet.hidden = !sheet.hidden;
-    }),
-  );
+  const moreBtn = mkBtn("⌘", "More", "mk-more", () => {
+    sheet.hidden = !sheet.hidden;
+    moreBtn.classList.toggle("mk-on", !sheet.hidden);
+  });
+  row.appendChild(moreBtn);
+
+  // a tap anywhere outside the bar (back into the text, usually) dismisses
+  // the sheet without needing a second ⌘ tap
+  document.addEventListener("pointerdown", (e) => {
+    if (!sheet.hidden && !bar.contains(e.target as Node)) closeSheet();
+  });
 
   document.body.appendChild(bar);
 

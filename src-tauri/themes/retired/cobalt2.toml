@@ -1,5 +1,5 @@
 # text — Cobalt 2: rich blue with orange accents (Wes Bos's classic).
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Cobalt 2"
 dark = true

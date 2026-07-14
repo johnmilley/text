@@ -1,5 +1,5 @@
 # text — Tokyo Day: the bright daytime variant of Tokyo Night.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Tokyo Day"
 dark = false

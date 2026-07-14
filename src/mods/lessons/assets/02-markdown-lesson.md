@@ -19,7 +19,7 @@ needs Ctrl+Shift+X selected first, or just type the tildes by hand).
 the words (on a phone, it's the marker key on the keyboard bar).
 
 > Try it: put your cursor in the word "interactively" in the title above,
-> press `Ctrl+B`. `text` wraps the whole word for you without needing a
+> press `Ctrl+B`. `pt` wraps the whole word for you without needing a
 > selection.
 
 ## 2. headings

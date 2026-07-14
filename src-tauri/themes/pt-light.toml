@@ -1,7 +1,7 @@
-# text — Text Light: paper-white counterpart to Text Dark.
-# See text-dark.toml for the token reference.
+# pt — PT Light: paper-white counterpart to PT Dark.
+# See pt-dark.toml for the token reference.
 
-name = "Text Light"
+name = "PT Light"
 dark = false
 
 [colors]

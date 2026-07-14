@@ -1,5 +1,5 @@
 # text — Cyberpunk Green: matrix-style terminal green on near-black.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Cyberpunk Green"
 dark = true

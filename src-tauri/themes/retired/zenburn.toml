@@ -1,5 +1,5 @@
 # text — Zenburn: the original low-contrast "coding in a cave" palette,
-# warm greys and faded pastels. See text-dark.toml for the token reference.
+# warm greys and faded pastels. See pt-dark.toml for the token reference.
 
 name = "Zenburn"
 dark = true

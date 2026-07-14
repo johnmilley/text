@@ -1,5 +1,5 @@
 # text — Classic Paper: warm cream and charcoal, like good stationery.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Classic Paper"
 dark = false

@@ -67,7 +67,11 @@ export interface Config {
   preview_replaces_editor: boolean;
   toolbar_capture: boolean;
   toolbar_calendar: boolean;
+  toolbar_corkboard: boolean;
+  toolbar_scratchpad: boolean;
   toolbar_preview: boolean;
+  /** display order of the capture/calendar/corkboard/scratchpad top-bar icons */
+  toolbar_order: string[];
   keys: Record<string, string>;
 }
 

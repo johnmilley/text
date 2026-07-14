@@ -1,5 +1,5 @@
 # text — Rosewater: soft warm light theme on the Rosé Pine Dawn palette.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Rosewater"
 dark = false

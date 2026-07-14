@@ -3,7 +3,7 @@
   "app": {
     "windows": [
       {
-        "title": "text",
+        "title": "pt",
         "width": 1100,
         "height": 760,
         "minWidth": 480,

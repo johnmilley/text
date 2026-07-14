@@ -63,7 +63,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "text ${{ github.ref_name }}"
+          releaseName: "pt ${{ github.ref_name }}"
           releaseBody: "Download the installer for your platform below."
           releaseDraft: true
           prerelease: false

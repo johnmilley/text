@@ -1,5 +1,5 @@
 # text — Everforest: soft green-on-warm-grey, designed for long comfortable
-# sessions. See text-dark.toml for the token reference.
+# sessions. See pt-dark.toml for the token reference.
 
 name = "Everforest"
 dark = true

@@ -7,7 +7,8 @@
 
 import type { Config } from "../api";
 
-const KEY = "text.config";
+const KEY = "pt.config";
+const OLD_KEY = "text.config"; // pre-rename key, migrated in loadConfigLocal
 
 const defaultKeys = (): Record<string, string> => ({
   quick_switch: "ctrl+p",
@@ -36,7 +37,7 @@ const defaultKeys = (): Record<string, string> => ({
 });
 
 export const defaultConfig = (): Config => ({
-  theme: "text-dark",
+  theme: "pt-dark",
   font_size: 15,
   ui_font_size: 13,
   editor_font: "",
@@ -60,14 +61,19 @@ export const defaultConfig = (): Config => ({
   preview_replaces_editor: false,
   toolbar_capture: true,
   toolbar_calendar: true,
+  toolbar_corkboard: true,
+  toolbar_scratchpad: true,
   toolbar_preview: true,
+  toolbar_order: ["capture", "calendar", "corkboard", "scratchpad"],
   keys: defaultKeys(),
 });
 
 export function loadConfigLocal(): Config {
   const base = defaultConfig();
   try {
-    const raw = localStorage.getItem(KEY);
+    // one-time migration from the pre-rename key, so an already-installed
+    // PWA doesn't appear to lose its theme/root/settings after the rename
+    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(OLD_KEY);
     if (!raw) return base;
     const stored = JSON.parse(raw) as Partial<Config>;
     return { ...base, ...stored, keys: { ...base.keys, ...(stored.keys ?? {}) } };

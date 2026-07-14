@@ -129,8 +129,20 @@ let pane2Dirty = false;
 let pane2Saving = false;
 let pane2SaveTimer: number | undefined;
 
+// one-time migration from the pre-rename "text.*" localStorage keys, so an
+// existing install doesn't appear to lose its open tabs/expanded folders/
+// recents after the rename. Must run before anything below reads them.
+for (const key of ["expanded", "tabs", "activeTab", "lastFile", "recentFiles"]) {
+  const newKey = `pt.${key}`;
+  const oldKey = `text.${key}`;
+  if (localStorage.getItem(newKey) === null) {
+    const v = localStorage.getItem(oldKey);
+    if (v !== null) localStorage.setItem(newKey, v);
+  }
+}
+
 const expanded = new Set<string>(
-  JSON.parse(localStorage.getItem("text.expanded") ?? "[]"),
+  JSON.parse(localStorage.getItem("pt.expanded") ?? "[]"),
 );
 
 // ---------------------------------------------------------------- helpers
@@ -255,7 +267,7 @@ const isMarkdownishPath = (p: string): boolean => {
 
 function updateStatus() {
   const shown = focusedPane === 2 && pane2Path ? pane2Path : currentPath;
-  const title = shown ? `text — ${rel(shown)}` : "text";
+  const title = shown ? `pt — ${rel(shown)}` : "pt";
   document.title = title;
   $("#titlebar-title").textContent = title;
   const tableBtn = $("#btn-table");
@@ -291,6 +303,7 @@ function renderTree() {
   entryByPath.clear();
   rowByPath.clear();
   treeEl.replaceChildren(...tree.map((e) => renderEntry(e, 0)));
+  for (const p of multiSel) if (!entryByPath.has(p)) multiSel.delete(p);
 }
 
 function renderEntry(entry: api.Entry, depth: number): HTMLElement {
@@ -302,6 +315,7 @@ function renderEntry(entry: api.Entry, depth: number): HTMLElement {
   entryByPath.set(entry.path, entry);
   rowByPath.set(entry.path, row);
 
+  if (multiSel.has(entry.path)) row.classList.add("multi-sel");
   if (!entry.is_dir) row.appendChild(fileIcon(entry.name));
 
   const label = document.createElement("span");
@@ -344,13 +358,38 @@ treeEl.addEventListener("mousedown", (e) => {
   const entry = entryAt(e);
   if (!entry) return;
   e.preventDefault();
+
+  // Ctrl/Cmd+click: toggle multi-select membership (doesn't open/navigate).
+  // Middle-click already covers "open in a new tab", so this is free to
+  // repurpose for the multi-select gesture users expect from file managers.
+  if (e.ctrlKey || e.metaKey) {
+    multiSel.has(entry.path) ? multiSel.delete(entry.path) : multiSel.add(entry.path);
+    setMultiSel(multiSel);
+    multiAnchor = entry.path;
+    return;
+  }
+  // Shift+click: range-select from the last touched row to this one.
+  if (e.shiftKey && multiAnchor) {
+    const paths = visibleTreePaths();
+    const a = paths.indexOf(multiAnchor);
+    const b = paths.indexOf(entry.path);
+    if (a !== -1 && b !== -1) {
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      setMultiSel(paths.slice(lo, hi + 1));
+      return;
+    }
+  }
+
+  // plain click: drop the multi-selection, unless the press landed on a row
+  // that's already part of it — that keeps the group intact so the drag
+  // below can pick up the whole selection instead of just this one row
+  if (multiSel.size && !multiSel.has(entry.path)) setMultiSel([]);
+  multiAnchor = entry.path;
   beginTreeDrag(entry, e); // arms a possible drag; activation below still runs
   if (entry.is_dir) {
     expanded.has(entry.path) ? expanded.delete(entry.path) : expanded.add(entry.path);
-    localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
+    localStorage.setItem("pt.expanded", JSON.stringify([...expanded]));
     renderTree();
-  } else if (e.ctrlKey || e.metaKey) {
-    void newTab(entry.path);
   } else {
     void openFile(entry.path);
   }
@@ -366,7 +405,13 @@ treeEl.addEventListener("auxclick", (e) => {
 });
 treeEl.addEventListener("contextmenu", (e) => {
   e.preventDefault();
-  showContextMenu(e, entryAt(e));
+  const entry = entryAt(e);
+  // right-clicking outside the current multi-selection replaces it, matching
+  // most file managers — otherwise the bulk menu would silently act on a
+  // stale set the user can no longer see highlighted
+  if (entry && multiSel.size && !multiSel.has(entry.path)) setMultiSel([]);
+  if (entry && multiSel.size > 1) showBulkContextMenu(e, [...multiSel]);
+  else showContextMenu(e, entry);
 });
 
 // ------------------------------------------------------ tree keyboard nav
@@ -374,12 +419,26 @@ treeEl.addEventListener("contextmenu", (e) => {
 // returns focus to the editor), Escape bails out. No mouse required.
 
 const persistExpanded = () =>
-  localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
+  localStorage.setItem("pt.expanded", JSON.stringify([...expanded]));
 
 /** Row paths in display order (rowByPath fills in render order). */
 const visibleTreePaths = () => [...rowByPath.keys()];
 
 let treeSel: string | null = null;
+
+// Ctrl/Cmd+click toggles a row into this set, Shift+click range-selects from
+// the last-touched row; a plain click (open/toggle) clears it. Bulk actions
+// (move/copy/delete several at once) operate on this set — see
+// showContextMenu's multi-row branch.
+const multiSel = new Set<string>();
+let multiAnchor: string | null = null;
+
+function setMultiSel(paths: Iterable<string>) {
+  const snapshot = [...paths]; // paths may alias multiSel itself — read it before clearing
+  multiSel.clear();
+  for (const p of snapshot) multiSel.add(p);
+  for (const [p, row] of rowByPath) row.classList.toggle("multi-sel", multiSel.has(p));
+}
 
 function markTreeSel(path: string | null) {
   treeSel = path;
@@ -455,6 +514,7 @@ treeEl.addEventListener("keydown", (e) => {
     case "Escape":
       e.preventDefault();
       markTreeSel(null);
+      if (multiSel.size) setMultiSel([]);
       editor.focus();
       break;
   }
@@ -464,10 +524,14 @@ treeEl.addEventListener("blur", () => markTreeSel(null));
 // Pointer-based drag to move tree entries between folders (HTML5 drag-and-drop
 // is unreliable inside Tauri webviews when native file drop is enabled).
 // Armed on every row mousedown; becomes a drag once the pointer travels a bit.
+// Dragging a row that's part of the current multi-selection moves the whole
+// selection together; dragging anything else moves just that one row.
 function beginTreeDrag(entry: api.Entry, e: MouseEvent) {
   const startX = e.clientX;
   const startY = e.clientY;
   const wasExpanded = expanded.has(entry.path);
+  const isGroup = multiSel.has(entry.path) && multiSel.size > 1;
+  const groupPaths = isGroup ? [...multiSel] : [entry.path];
   let ghost: HTMLElement | null = null;
   let target: string | null = null;
 
@@ -491,7 +555,16 @@ function beginTreeDrag(entry: api.Entry, e: MouseEvent) {
     } else if (el.closest("#pane-files")) {
       dest = root;
     }
-    if (!dest || dest === parentOf(entry.path)) return null;
+    if (!dest) return null;
+    if (isGroup) {
+      // can't drop a selection into itself, one of its own members, or a
+      // descendant of one of them; per-item already-there no-ops are quietly
+      // skipped in movePaths rather than blocking the whole drop
+      if (groupPaths.some((p) => dest === p || dest!.startsWith(p + "/"))) return null;
+      if (groupPaths.every((p) => parentOf(p) === dest)) return null;
+      return dest;
+    }
+    if (dest === parentOf(entry.path)) return null;
     if (dest === entry.path || dest.startsWith(entry.path + "/")) return null;
     return dest;
   };
@@ -502,12 +575,12 @@ function beginTreeDrag(entry: api.Entry, e: MouseEvent) {
       // the arming mousedown already toggled a dir — put it back
       if (entry.is_dir && expanded.has(entry.path) !== wasExpanded) {
         wasExpanded ? expanded.add(entry.path) : expanded.delete(entry.path);
-        localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
+        localStorage.setItem("pt.expanded", JSON.stringify([...expanded]));
         renderTree();
       }
       ghost = document.createElement("div");
       ghost.id = "drag-ghost";
-      ghost.textContent = entry.name;
+      ghost.textContent = isGroup ? `${groupPaths.length} items` : entry.name;
       document.body.appendChild(ghost);
       document.body.classList.add("tree-dragging");
     }
@@ -522,7 +595,7 @@ function beginTreeDrag(entry: api.Entry, e: MouseEvent) {
     document.body.classList.remove("tree-dragging");
     const dest = target;
     setTarget(null);
-    if (ghost && dest) void movePath(entry, dest);
+    if (ghost && dest) void (isGroup ? movePaths(groupPaths, dest) : movePath(entry, dest));
     ghost?.remove();
   };
 
@@ -530,7 +603,9 @@ function beginTreeDrag(entry: api.Entry, e: MouseEvent) {
   document.addEventListener("mouseup", up);
 }
 
-async function movePath(entry: api.Entry, destDir: string) {
+/** Core of a single move: rename on disk and keep the open tab/tree/split-pane
+ * state pointed at the new path. Returns an error message, or null on success. */
+async function movePathCore(entry: api.Entry, destDir: string): Promise<string | null> {
   const to = `${destDir}/${entry.name}`;
   try {
     await api.renamePath(entry.path, to);
@@ -538,16 +613,45 @@ async function movePath(entry: api.Entry, destDir: string) {
       currentPath = to + currentPath.slice(entry.path.length);
       rememberFile(currentPath);
     }
+    if (pane2Path === entry.path) pane2Path = to;
     remapTabs(entry.path, to);
     if (expanded.delete(entry.path)) {
       expanded.add(to);
-      localStorage.setItem("text.expanded", JSON.stringify([...expanded]));
+      localStorage.setItem("pt.expanded", JSON.stringify([...expanded]));
     }
-    await refreshTree();
-    setCurrentRow(currentPath);
-    updateStatus();
+    return null;
   } catch (err) {
-    showIssue(`move failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+    return `${entry.name}: ${err}`;
+  }
+}
+
+async function movePath(entry: api.Entry, destDir: string) {
+  const err = await movePathCore(entry, destDir);
+  await refreshTree();
+  setCurrentRow(currentPath);
+  updateStatus();
+  if (err) showIssue(`move failed: ${err}`, [{ label: "ok", run: hideIssue }]);
+}
+
+/** Move several paths into one destination folder (drag-and-drop of a
+ * multi-selection, or the "move N items to…" context-menu action).
+ * Per-item failures don't abort the rest. */
+async function movePaths(paths: string[], destDir: string) {
+  const errors: string[] = [];
+  for (const path of paths) {
+    const entry = entryByPath.get(path);
+    if (!entry || parentOf(path) === destDir) continue; // already there
+    const err = await movePathCore(entry, destDir);
+    if (err) errors.push(err);
+  }
+  setMultiSel([]);
+  await refreshTree();
+  setCurrentRow(currentPath);
+  updateStatus();
+  if (errors.length) {
+    showIssue(`${errors.length} item(s) failed to move — ${errors.join("; ")}`, [
+      { label: "ok", run: hideIssue },
+    ]);
   }
 }
 
@@ -667,6 +771,16 @@ function showContextMenu(e: MouseEvent, entry: api.Entry | undefined) {
   }
   rest.sort((a, b) => a[0].localeCompare(b[0]));
   openCtxMenu(e, [...top, ...rest]);
+}
+
+/** Right-click menu for a multi-selection (2+ rows). */
+function showBulkContextMenu(e: MouseEvent, paths: string[]) {
+  const n = paths.length;
+  openCtxMenu(e, [
+    [`move ${n} items to…`, () => void bulkMoveTo(paths)],
+    [`copy ${n} items to folder…`, () => void bulkCopyTo(paths)],
+    [`delete ${n} items`, () => void bulkDelete(paths)],
+  ]);
 }
 
 // ---------------------------------------------------------------- mods
@@ -907,8 +1021,8 @@ function renderTabs() {
 
 function persistTabs() {
   if (!isMain) return;
-  localStorage.setItem("text.tabs", JSON.stringify(tabs.map((t) => t.path)));
-  localStorage.setItem("text.activeTab", String(active));
+  localStorage.setItem("pt.tabs", JSON.stringify(tabs.map((t) => t.path)));
+  localStorage.setItem("pt.activeTab", String(active));
 }
 
 /** Keep the active tab's record in step with what's actually open. */
@@ -1359,8 +1473,8 @@ async function copyFileTo(path: string) {
   }
 }
 
-async function moveFileTo(path: string) {
-  if (!root) return;
+/** Every folder path in the open tree, depth-first. */
+function allDirPaths(): string[] {
   const dirs: string[] = [];
   const walk = (entries: api.Entry[]) => {
     for (const e of entries) {
@@ -1371,11 +1485,16 @@ async function moveFileTo(path: string) {
     }
   };
   walk(tree);
+  return dirs;
+}
+
+async function moveFileTo(path: string) {
+  if (!root) return;
   const name = path.split("/").pop()!;
   const here = parentOf(path);
   const items: PickerItem[] = [
     { label: "(folder root)", detail: root, value: root },
-    ...dirs.map((d) => ({ label: rel(d), detail: d, value: d })),
+    ...allDirPaths().map((d) => ({ label: rel(d), detail: d, value: d })),
   ].filter((it) => it.value !== here); // no-op moves hidden
   if (items.length === 0) {
     return showIssue("no other folder to move into", [{ label: "ok", run: hideIssue }]);
@@ -1398,6 +1517,70 @@ async function moveFileTo(path: string) {
   setCurrentRow(currentPath);
   refocusTree(to);
   updateStatus();
+}
+
+/** Move every selected path into one chosen folder, in a single picker
+ * round-trip. Individual failures (e.g. a name collision) don't abort the
+ * rest — they're collected and reported together. */
+async function bulkMoveTo(paths: string[]) {
+  if (!root) return;
+  const items: PickerItem[] = [
+    { label: "(folder root)", detail: root, value: root },
+    ...allDirPaths().map((d) => ({ label: rel(d), detail: d, value: d })),
+  ].filter(
+    // hide any destination that IS one of the selected items, or nested
+    // inside one — you can't move a folder into itself or its own child
+    (it) => !paths.includes(it.value) && !paths.some((p) => it.value.startsWith(p + "/")),
+  );
+  if (items.length === 0) {
+    return showIssue("no other folder to move into", [{ label: "ok", run: hideIssue }]);
+  }
+  const chosen = await pick(items, { placeholder: `move ${paths.length} items to…` });
+  if (!chosen) return;
+  await movePaths(paths, chosen.value);
+}
+
+/** Copy every selected path into one folder anywhere on disk (native picker),
+ * same as "copy to folder…" but for the whole selection at once. */
+async function bulkCopyTo(paths: string[]) {
+  const dest = await pickFolder(`copy ${paths.length} items to folder`);
+  if (!dest) return;
+  const errors: string[] = [];
+  for (const path of paths) {
+    try {
+      await api.copyPath(path, dest);
+    } catch (err) {
+      errors.push(`${path.split("/").pop()}: ${err}`);
+    }
+  }
+  if (root && (dest === root || dest.startsWith(root + "/"))) await refreshTree();
+  if (errors.length) {
+    showIssue(`${errors.length} item(s) failed to copy — ${errors.join("; ")}`, [
+      { label: "ok", run: hideIssue },
+    ]);
+  }
+}
+
+async function bulkDelete(paths: string[]) {
+  const ok = await confirmBox(`move ${paths.length} items to trash?`, "Trash them");
+  if (!ok) return;
+  const errors: string[] = [];
+  for (const path of paths) {
+    try {
+      await api.trashPath(path);
+      if (currentPath?.startsWith(path)) closeCurrent();
+      if (pane2Path?.startsWith(path)) emptyPane2();
+    } catch (err) {
+      errors.push(`${path.split("/").pop()}: ${err}`);
+    }
+  }
+  setMultiSel([]);
+  await refreshTree();
+  if (errors.length) {
+    showIssue(`${errors.length} item(s) failed to delete — ${errors.join("; ")}`, [
+      { label: "ok", run: hideIssue },
+    ]);
+  }
 }
 
 async function savePane2(): Promise<boolean> {
@@ -1485,14 +1668,14 @@ async function pane2FsChanged() {
 /** Only the main window owns the cross-launch "last file" fallback. */
 function rememberFile(path: string) {
   if (!isMain) return;
-  localStorage.setItem("text.lastFile", path);
-  localStorage.setItem("text.recentFiles", JSON.stringify(pushRecent(path)));
+  localStorage.setItem("pt.lastFile", path);
+  localStorage.setItem("pt.recentFiles", JSON.stringify(pushRecent(path)));
 }
 
 /** Most-recent-first list of recently opened files (for the quick switcher). */
 function recentFiles(): string[] {
   try {
-    return JSON.parse(localStorage.getItem("text.recentFiles") ?? "[]");
+    return JSON.parse(localStorage.getItem("pt.recentFiles") ?? "[]");
   } catch {
     return [];
   }
@@ -1895,6 +2078,69 @@ async function quickCapture(): Promise<void> {
   view.focus();
 }
 
+// ------------------------------------------------------------- scratchpad
+// A single always-there file (scratchpad.md at the root) for text you don't
+// want to lose but don't want to stop and file properly yet — unlike quick
+// capture, opening it doesn't switch your tab or lose your place; it's a
+// small popover you jot into and dismiss.
+
+function scratchpadPath(): string | null {
+  return root ? `${root}/scratchpad.md` : null;
+}
+
+function openScratchpad() {
+  const path = scratchpadPath();
+  if (!path) return;
+  infoBox((box) => {
+    box.classList.add("scratchpad-box");
+    const caption = document.createElement("div");
+    caption.className = "modal-caption";
+    caption.textContent = "scratchpad — quick text you don't want to forget, file it properly later";
+    const ta = document.createElement("textarea");
+    ta.className = "scratchpad-textarea";
+    ta.placeholder = "jot it down…";
+    const actions = document.createElement("div");
+    actions.className = "modal-buttons";
+    const openBtn = document.createElement("button");
+    openBtn.textContent = "open as note";
+    openBtn.addEventListener("click", () => {
+      closeModal();
+      void openFile(path);
+    });
+    actions.appendChild(openBtn);
+    box.append(caption, ta, actions);
+
+    let loaded = false;
+    let saveTimer: number | undefined;
+    const flush = () => {
+      if (!loaded) return; // never overwrite the file with an empty draft we haven't loaded yet
+      window.clearTimeout(saveTimer);
+      void api.writeTextFile(path, ta.value);
+    };
+    ta.addEventListener("input", () => {
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(flush, 400);
+    });
+    // Escape/click-outside removes the textarea from the DOM, which fires a
+    // native blur first — catches drafts the debounce hadn't flushed yet.
+    ta.addEventListener("blur", flush);
+
+    void api
+      .readFile(path)
+      .then(({ content }) => {
+        ta.value = content;
+      })
+      .catch(() => {
+        // no scratchpad.md yet — start blank, first save creates it
+      })
+      .finally(() => {
+        loaded = true;
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      });
+  });
+}
+
 async function save(): Promise<boolean> {
   if (!currentPath || saving || viewingImage || viewingAudio || viewingPdf)
     return true;
@@ -2039,7 +2285,7 @@ async function renderWelcome() {
   const box = document.createElement("div");
   box.className = "welcome-box";
   const h1 = document.createElement("h1");
-  h1.textContent = "text";
+  h1.textContent = "pt";
   const tag = document.createElement("p");
   tag.textContent = root ? rel(root) || (root.split("/").pop() ?? root) : "a plain editor for a folder of plain files";
   box.append(h1, tag);
@@ -2787,13 +3033,29 @@ function applyPreviewMode() {
   document.body.classList.toggle("preview-replaces-editor", config.preview_replaces_editor);
 }
 
-/** Show/hide the optional top-bar icons per config; back/forward/settings are
- * never optional. The edit/preview icon has its own visibility logic in
- * updateStatus (it also depends on whether the current file is previewable),
- * so just refresh that here. */
+/** ids of the reorderable top-bar icons, in the order they should render.
+ * Falls back to the built-in order and drops anything unrecognized, so a
+ * stale/missing config.toolbar_order (older configs, or a future icon this
+ * build doesn't know) never breaks the top bar. */
+const TOOLBAR_ICON_IDS = ["capture", "calendar", "corkboard", "scratchpad"] as const;
+function toolbarOrder(): string[] {
+  const known = new Set<string>(TOOLBAR_ICON_IDS);
+  const order = (config.toolbar_order ?? []).filter((id) => known.has(id));
+  for (const id of TOOLBAR_ICON_IDS) if (!order.includes(id)) order.push(id);
+  return order;
+}
+
+/** Show/hide the optional top-bar icons per config, in the configured order;
+ * back/forward/settings are never optional. The edit/preview icon has its
+ * own visibility logic in updateStatus (it also depends on whether the
+ * current file is previewable), so just refresh that here. */
 function applyToolbar() {
   $("#tb-capture").hidden = !config.toolbar_capture;
   $("#tb-calendar").hidden = !config.toolbar_calendar;
+  $("#tb-corkboard").hidden = !config.toolbar_corkboard;
+  $("#tb-scratchpad").hidden = !config.toolbar_scratchpad;
+  const settingsBtn = $("#tb-settings");
+  for (const id of toolbarOrder()) settingsBtn.before($(`#tb-${id}`));
   updateStatus();
 }
 
@@ -2893,7 +3155,7 @@ async function openFirstFile() {
 async function restoreSession() {
   let saved: (string | null)[] = [];
   try {
-    saved = JSON.parse(localStorage.getItem("text.tabs") ?? "[]");
+    saved = JSON.parse(localStorage.getItem("pt.tabs") ?? "[]");
   } catch {
     // unreadable — start fresh
   }
@@ -2901,13 +3163,13 @@ async function restoreSession() {
   // system player at startup (videos no longer open in-app)
   let paths = saved.filter((p): p is string => !!p && !isVideoFile(p));
   if (!paths.length) {
-    const last = localStorage.getItem("text.lastFile");
+    const last = localStorage.getItem("pt.lastFile");
     paths = last && !isVideoFile(last) ? [last] : [];
   }
   if (!paths.length) return;
   tabs = paths.map((p) => blankTab(p));
   active = Math.min(
-    Math.max(Number(localStorage.getItem("text.activeTab")) || 0, 0),
+    Math.max(Number(localStorage.getItem("pt.activeTab")) || 0, 0),
     tabs.length - 1,
   );
   await activateTab();
@@ -2999,6 +3261,7 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "quick_switch", combo: "ctrl+p", what: "quick switch / new note", run: () => void quickSwitch() },
   { id: "new_note", combo: "ctrl+n", what: "new note", run: () => void newNote() },
   { id: "quick_capture", combo: "ctrl+shift+j", what: "quick capture into today's daily note", run: () => void quickCapture() },
+  { id: "scratchpad", combo: "alt+s", what: "scratchpad (quick text, file it properly later)", run: openScratchpad },
   { id: "new_folder", combo: "ctrl+shift+n", what: "new folder", run: () => void newFolder() },
   { id: "open_folder", combo: "ctrl+o", what: "open / switch folder…", run: () => void switchFolder() },
   { id: "open_file", combo: "alt+o", what: "open a file (keeps the folder)", run: () => void openLooseFile() },
@@ -3316,6 +3579,8 @@ async function init() {
   $("#tb-editview").addEventListener("click", togglePreview);
   $("#tb-capture").addEventListener("click", () => void quickCapture());
   $("#tb-calendar").addEventListener("click", () => ACTIONS.find((a) => a.id === "calendar")?.run());
+  $("#tb-corkboard").addEventListener("click", () => ACTIONS.find((a) => a.id === "corkboard")?.run());
+  $("#tb-scratchpad").addEventListener("click", () => openScratchpad());
   $("#tb-settings").addEventListener("click", () => openSettingsPanel());
   $("#tb-settings").addEventListener("contextmenu", (e) => {
     e.preventDefault();
@@ -3417,7 +3682,7 @@ async function init() {
   }
   $("#btn-collapse").addEventListener("click", () => {
     expanded.clear();
-    localStorage.setItem("text.expanded", "[]");
+    localStorage.setItem("pt.expanded", "[]");
     renderTree();
   });
   $("#btn-sidebar").addEventListener("click", toggleSidebar);
@@ -3442,6 +3707,12 @@ async function init() {
     searchTimer = window.setTimeout(() => void runSearch(), 250);
   });
   window.addEventListener("keydown", onKeydown);
+  // images (editor embeds, preview, image viewer) otherwise fall through to
+  // the webview's native context menu (save/copy/open in new tab) — it's not
+  // wired to anything useful here and just outs the app as a webview
+  window.addEventListener("contextmenu", (e) => {
+    if ((e.target as HTMLElement).closest("img")) e.preventDefault();
+  });
   initResizer();
   initPdfView();
   // wheel zooms images, like a standalone image viewer
@@ -3464,7 +3735,7 @@ async function init() {
   void renderWelcome(); // context-aware new-tab screen (rebuilt once a file opens)
 
   // init params come from the backend: CLI args for the main window
-  // (`text <file|dir>`), or the hand-over to new-window / detached tabs.
+  // (`pt <file|dir>`), or the hand-over to new-window / detached tabs.
   // without params, the main window restores its previous session.
   const params = await api.windowInitParams().catch(() => null);
   const startRoot = params?.root ?? config.root;

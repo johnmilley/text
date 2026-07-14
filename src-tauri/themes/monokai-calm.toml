@@ -1,5 +1,5 @@
 # text — Monokai Calm: monokai's voice, desaturated to easy-evening levels.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Monokai Calm"
 dark = true

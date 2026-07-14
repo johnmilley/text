@@ -4,12 +4,12 @@ title: lessons
 
 # lessons
 
-A self-contained course in `text`, generated once into this folder. Nothing
+A self-contained course in `pt`, generated once into this folder. Nothing
 here is required reading in order — jump to whichever lesson matches what
 you're trying to do. Each lesson is a normal note; edit, break, and rebuild
 anything freely, this copy is yours.
 
-- [[01-using-text]] — a tour of the app itself: panes, tabs, search, zen mode,
+- [[01-using-pt]] — a tour of the app itself: panes, tabs, search, zen mode,
   the calendar, quick capture, and how mods extend the editor.
 - [[02-markdown-lesson]] — an interactive markdown lesson. Open it beside its
   own preview (Ctrl+Shift+M) and watch source become output as you edit.

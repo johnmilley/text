@@ -7,6 +7,11 @@
      for interactive UI, so nudge it toward fg. Hints and captions keep the
      plain muted color. A theme's raw css can override this. */
   --fg-chrome: color-mix(in srgb, var(--fg) 42%, var(--fg-muted));
+  /* window edge (no native decorations): --border alone is tuned for subtle
+     internal dividers and nearly disappears against the desktop, so nudge it
+     toward --fg-chrome for a hairline that actually reads as "app ends here"
+     when another window overlaps it. */
+  --window-edge: color-mix(in srgb, var(--border) 45%, var(--fg-chrome));
 }
 
 * {
@@ -27,9 +32,12 @@ body {
 body {
   display: flex;
   flex-direction: column;
-  /* hairline around the window (no native decorations) so the app doesn't
-     melt into whatever is behind it */
-  border: 1px solid var(--border);
+  /* hairline + soft dark halo around the window (no native decorations) so
+     the app doesn't melt into whatever is behind it — the halo is a fixed
+     dark tone on purpose (like an OS drop shadow) so it still reads as edge
+     definition regardless of the theme or what's underneath it */
+  border: 1px solid var(--window-edge);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
 }
 body.maximized,
 body.zen,
@@ -305,6 +313,10 @@ button:hover {
 .tree-row.kbd-sel {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
+}
+/* multi-selection (Ctrl/Shift+click): pending bulk move/copy/delete */
+.tree-row.multi-sel {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-hover));
 }
 
 #pane-search input,
@@ -1044,7 +1056,7 @@ body.tree-dragging * {
   justify-content: center;
   margin: 18px 0 6px;
 }
-.welcome-box button {
+.welcome-actions button {
   padding: 6px 18px;
   border: 1px solid var(--accent);
   color: var(--accent);
@@ -1056,25 +1068,31 @@ body.tree-dragging * {
   letter-spacing: 0.06em;
   opacity: 0.7;
 }
+/* recent files: a plain left-aligned list, not a row of pill buttons */
 .welcome-recent {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  align-items: stretch;
+  width: 100%;
+  gap: 1px;
+  text-align: left;
 }
 .welcome-file {
   border: none;
   background: none;
   color: var(--link);
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  text-align: left;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .welcome-file:hover {
-  text-decoration: underline;
+  background: var(--bg-hover);
+  text-decoration: none;
 }
 /* inline shortcut cheatsheet — two columns: key, then what it does */
 .welcome-keys-grid {
@@ -1258,6 +1276,33 @@ body.tree-dragging * {
 }
 .settings-keys-hint {
   margin: 4px 0 2px;
+}
+/* top-bar icon show/hide + reorder list (settings) */
+.toolbar-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 0 5px;
+}
+.toolbar-order-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.toolbar-order-label {
+  flex: 1;
+  min-width: 0;
+}
+.toolbar-order-btn {
+  border: 1px solid var(--border);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+}
+.toolbar-order-btn:disabled {
+  opacity: 0.35;
 }
 .set-btn,
 .settings-foot button {
@@ -1596,6 +1641,23 @@ mark {
 }
 .tpl-item:hover {
   background: var(--bg-hover);
+}
+
+.scratchpad-box {
+  width: min(480px, 92vw);
+}
+.scratchpad-textarea {
+  margin: 8px 12px 0;
+  padding: 8px;
+  height: 40vh;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-editor);
+  font-size: 0.95em;
+  line-height: 1.5;
 }
 
 /* corkboard mod: index cards for a folder */
@@ -2173,27 +2235,22 @@ body.web #status {
 #md-keybar[hidden] {
   display: none;
 }
-#md-keybar .mk-scroll {
+/* the bar itself: a handful of essentials spread edge to edge — no scrolling */
+#md-keybar .mk-row {
+  flex: 1;
   display: flex;
-  gap: 2px;
-  padding: 4px 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-#md-keybar .mk-scroll::-webkit-scrollbar {
-  display: none;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 5px 8px;
 }
 #md-keybar .mk-btn {
-  flex: 0 0 auto;
-  min-width: 40px;
-  height: 38px;
-  padding: 0 10px;
-  border-radius: 7px;
+  flex: 1 1 0;
+  max-width: 84px;
+  height: 42px;
+  border-radius: 8px;
   color: var(--fg-chrome);
   font-family: var(--font-editor);
-  font-size: 16px;
+  font-size: 17px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2204,9 +2261,12 @@ body.web #status {
 }
 /* the contextual "open link" chip stands out and sits at the left edge */
 #md-keybar .mk-open {
+  flex: 0 0 auto;
+  padding: 0 10px;
   gap: 4px;
   color: var(--link);
   font-weight: 600;
+  font-size: 15px;
 }
 #md-keybar .mk-open[hidden] {
   display: none;
@@ -2217,41 +2277,67 @@ body.web #status {
 #md-keybar .mk-i {
   font-style: italic;
 }
-/* the highlight button wears the theme's ==highlight== wash */
-#md-keybar .mk-hl {
-  background: var(--highlight);
+#md-keybar .mk-more.mk-on {
   color: var(--fg);
-  border-radius: 4px;
-  min-width: 34px;
-  height: 30px;
-  align-self: center;
+  background: var(--bg-hover);
 }
-/* the ⌘ sheet: second-string actions in a small popover above the bar */
+/* the ⌘ sheet: the rest of the formatting actions in a thumb grid above the
+   bar, hugging the right edge where the ⌘ button (and the thumb) is */
 #md-keybar .mk-sheet {
   position: absolute;
-  bottom: calc(100% + 6px);
-  right: 6px;
-  min-width: 190px;
+  bottom: calc(100% + 8px);
+  right: 8px;
+  left: 8px;
+  max-width: 400px;
+  margin-left: auto;
   display: flex;
   flex-direction: column;
-  padding: 4px;
+  gap: 6px;
+  padding: 8px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
 #md-keybar .mk-sheet[hidden] {
   display: none;
 }
+#md-keybar .mk-sheet-row {
+  display: flex;
+  gap: 6px;
+}
 #md-keybar .mk-cmd {
-  text-align: left;
-  padding: 11px 14px;
-  border-radius: 8px;
+  flex: 1 1 0;
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   color: var(--fg);
-  font-size: 15px;
 }
 #md-keybar .mk-cmd:active {
   background: var(--bg-hover);
+}
+#md-keybar .mk-cmd-glyph {
+  font-family: var(--font-editor);
+  font-size: 17px;
+  line-height: 1;
+}
+#md-keybar .mk-cmd-label {
+  font-size: 11px;
+  color: var(--fg-chrome);
+}
+/* the highlight button's glyph wears the theme's ==highlight== wash */
+#md-keybar .mk-hl .mk-cmd-glyph {
+  background: var(--highlight);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+#md-keybar .mk-s .mk-cmd-glyph {
+  text-decoration: line-through;
 }
 
 /* ------------------------------------------------------------ mermaid */

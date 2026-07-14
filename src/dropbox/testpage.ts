@@ -48,8 +48,8 @@ async function refreshStatus(): Promise<void> {
 $<HTMLInputElement>("appkey").value = auth.appKey();
 const rootInput = $<HTMLInputElement>("root");
 const fileInput = $<HTMLInputElement>("file");
-rootInput.value = localStorage.getItem("text.test_root") ?? "";
-rootInput.addEventListener("change", () => localStorage.setItem("text.test_root", rootInput.value));
+rootInput.value = localStorage.getItem("pt.test_root") ?? "";
+rootInput.addEventListener("change", () => localStorage.setItem("pt.test_root", rootInput.value));
 
 $("connect").onclick = () => {
   auth.setAppKey($<HTMLInputElement>("appkey").value);

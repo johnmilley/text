@@ -10,8 +10,8 @@ use std::path::PathBuf;
 /// A theme cut from here moves to themes/retired/ and gets an entry in
 /// RETIRED below, so unmodified seeded copies disappear from users' disks.
 const BUNDLED: &[(&str, &str)] = &[
-    ("text-dark", include_str!("../themes/text-dark.toml")),
-    ("text-light", include_str!("../themes/text-light.toml")),
+    ("pt-dark", include_str!("../themes/pt-dark.toml")),
+    ("pt-light", include_str!("../themes/pt-light.toml")),
     ("ia-writer", include_str!("../themes/ia-writer.toml")),
     ("ia-writer-dark", include_str!("../themes/ia-writer-dark.toml")),
     ("emotion-side-b", include_str!("../themes/emotion-side-b.toml")),
@@ -57,7 +57,17 @@ const RETIRED: &[(&str, &str)] = &[
 ];
 
 pub fn config_dir() -> Result<PathBuf, String> {
-    Ok(dirs::config_dir().ok_or("no config directory")?.join("text"))
+    let base = dirs::config_dir().ok_or("no config directory")?;
+    let dir = base.join("pt");
+    // one-time migration from the pre-rename "text" config dir, so existing
+    // config/themes/lessons aren't orphaned by the name change
+    if !dir.exists() {
+        let old = base.join("text");
+        if old.exists() {
+            let _ = fs::rename(&old, &dir);
+        }
+    }
+    Ok(dir)
 }
 
 fn themes_dir() -> Result<PathBuf, String> {
@@ -105,7 +115,7 @@ fn seed_bundled(dir: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-/// All themes from ~/.config/text/themes/*.toml, seeding the bundled set
+/// All themes from ~/.config/pt/themes/*.toml, seeding the bundled set
 /// first. A sibling <id>.css file is attached verbatim if present.
 #[tauri::command]
 pub fn list_themes() -> Result<Vec<Theme>, String> {

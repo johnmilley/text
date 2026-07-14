@@ -15,12 +15,12 @@ fn main() {
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
-    text_lib::run()
+    pt_lib::run()
 }
 
 /// Re-spawn in a new session (via `setsid`) and exit the parent, so running
-/// `text` from a terminal returns the prompt immediately while the window stays
-/// up. Guarded by `TEXT_DETACHED` so the child doesn't re-spawn; skipped when
+/// `pt` from a terminal returns the prompt immediately while the window stays
+/// up. Guarded by `PT_DETACHED` so the child doesn't re-spawn; skipped when
 /// stdin/stdout aren't a terminal (so a `.desktop`/menu launch is untouched and
 /// piped output still works). If `setsid` is missing it falls through and runs
 /// in the foreground as before — detaching is best-effort, never fatal.
@@ -29,7 +29,7 @@ fn detach_from_terminal() {
     use std::io::IsTerminal;
     use std::process::{Command, Stdio};
 
-    if std::env::var_os("TEXT_DETACHED").is_some() {
+    if std::env::var_os("PT_DETACHED").is_some() {
         return; // this is the re-spawned child — run the app
     }
     if !std::io::stdin().is_terminal() && !std::io::stdout().is_terminal() {
@@ -41,8 +41,8 @@ fn detach_from_terminal() {
     };
     let spawned = Command::new("setsid")
         .arg(exe)
-        .args(std::env::args_os().skip(1)) // pass through `text <file|dir>`
-        .env("TEXT_DETACHED", "1")
+        .args(std::env::args_os().skip(1)) // pass through `pt <file|dir>`
+        .env("PT_DETACHED", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

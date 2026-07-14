@@ -1,5 +1,5 @@
 # text — One Light: the clean, neutral Atom One Light palette.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "One Light"
 dark = false

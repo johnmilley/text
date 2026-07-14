@@ -1,5 +1,5 @@
 # text — Solarized Dark: Ethan Schoonover's precision palette (ethanschoonover.com/solarized).
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Solarized Dark"
 dark = true

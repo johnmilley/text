@@ -1,5 +1,5 @@
 # text — Everforest Light: soft, low-contrast forest greens on warm paper.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Everforest Light"
 dark = false

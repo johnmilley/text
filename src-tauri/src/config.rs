@@ -5,13 +5,13 @@ use std::fs;
 
 /// Comment header written at the top of config.toml on every save, so the
 /// file documents itself (the serializer alone would strip comments).
-const HEADER: &str = r#"# text — config
+const HEADER: &str = r#"# pt — config
 #
 # Ctrl+, opens the settings panel, which manages this file. It also stays
 # hand-editable ("open config.toml" in settings) and applies when saved.
 # Values:
 #
-#   theme         a file stem from the themes folder (~/.config/text/themes);
+#   theme         a file stem from the themes folder (~/.config/pt/themes);
 #                 the "theme" key below opens a picker with all of them
 #   font_size     editor text size      (fixed keys: Ctrl+= / Ctrl+-)
 #   ui_font_size  sidebar/dialog size   (fixed keys: Ctrl+Shift+= / Ctrl+Shift+-,
@@ -46,7 +46,11 @@ const HEADER: &str = r#"# text — config
 #                 pane instead of showing beside it (phones always replace)
 #   toolbar_capture   show the quick-capture icon in the top bar
 #   toolbar_calendar  show the daily-note calendar icon in the top bar
+#   toolbar_corkboard show the corkboard icon in the top bar
+#   toolbar_scratchpad  show the scratchpad icon in the top bar
 #   toolbar_preview   show the edit/preview toggle icon in the top bar
+#   toolbar_order     display order of the capture/calendar/corkboard/
+#                 scratchpad icons
 #
 # [keys] rebinds the app shortcuts. Format: modifiers + key, e.g.
 # "ctrl+shift+f", "ctrl+,", "alt+d". Modifiers: ctrl, shift, alt.
@@ -105,8 +109,14 @@ pub struct Config {
     pub toolbar_capture: bool,
     /// show the daily-note calendar icon in the top bar
     pub toolbar_calendar: bool,
+    /// show the corkboard icon in the top bar
+    pub toolbar_corkboard: bool,
+    /// show the scratchpad icon in the top bar
+    pub toolbar_scratchpad: bool,
     /// show the edit/preview toggle icon in the top bar
     pub toolbar_preview: bool,
+    /// display order of the capture/calendar/corkboard/scratchpad top-bar icons
+    pub toolbar_order: Vec<String>,
     /// app-level shortcut overrides: action -> "ctrl+shift+x" style combo
     pub keys: BTreeMap<String, String>,
 }
@@ -154,7 +164,7 @@ const KEY_MIGRATIONS: &[(&str, &str, &str)] = &[
 impl Default for Config {
     fn default() -> Self {
         Config {
-            theme: "text-dark".into(),
+            theme: "pt-dark".into(),
             font_size: 15,
             ui_font_size: 13,
             editor_font: "".into(),
@@ -178,7 +188,10 @@ impl Default for Config {
             preview_replaces_editor: false,
             toolbar_capture: true,
             toolbar_calendar: true,
+            toolbar_corkboard: true,
+            toolbar_scratchpad: true,
             toolbar_preview: true,
+            toolbar_order: vec!["capture".into(), "calendar".into(), "corkboard".into(), "scratchpad".into()],
             keys: default_keys(),
         }
     }

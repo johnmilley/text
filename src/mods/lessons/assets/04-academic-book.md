@@ -47,7 +47,7 @@ at the end of the section — with a matching `[^label]:`:
 ```
 
 The label is never shown to the reader; it only has to be unique within the
-note. `text` renders the marker as a small superscript link down to the
+note. `pt` renders the marker as a small superscript link down to the
 note, and back again — try clicking `[^euler]` above.
 
 ## the bibliography

@@ -9,10 +9,24 @@
  * setManualAccessToken (it expires after ~4 hours).
  */
 
-const KEY_APP = "text.dropbox.app_key";
-const KEY_REFRESH = "text.dropbox.refresh_token";
-const KEY_VERIFIER = "text.dropbox.pkce_verifier";
-const KEY_MANUAL = "text.dropbox.manual_access_token";
+const KEY_APP = "pt.dropbox.app_key";
+const KEY_REFRESH = "pt.dropbox.refresh_token";
+const KEY_VERIFIER = "pt.dropbox.pkce_verifier";
+const KEY_MANUAL = "pt.dropbox.manual_access_token";
+
+// one-time migration from the pre-rename "text.dropbox.*" keys, so an
+// already-installed PWA doesn't get silently logged out of Dropbox
+for (const [oldKey, newKey] of [
+  ["text.dropbox.app_key", KEY_APP],
+  ["text.dropbox.refresh_token", KEY_REFRESH],
+  ["text.dropbox.pkce_verifier", KEY_VERIFIER],
+  ["text.dropbox.manual_access_token", KEY_MANUAL],
+]) {
+  if (localStorage.getItem(newKey) === null) {
+    const v = localStorage.getItem(oldKey);
+    if (v !== null) localStorage.setItem(newKey, v);
+  }
+}
 
 export function appKey(): string {
   return (

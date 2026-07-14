@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "text",
+  "productName": "pt",
   "version": "0.2.10",
-  "identifier": "com.johnathan.text",
+  "identifier": "com.johnathan.pt",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "text",
+        "title": "pt",
         "width": 1100,
         "height": 760,
         "minWidth": 480,
@@ -42,19 +42,19 @@
     ],
     "linux": {
       "deb": {
-        "desktopTemplate": "text.desktop.template",
+        "desktopTemplate": "pt.desktop.template",
         "files": {
-          "/usr/share/icons/hicolor/32x32/apps/com.johnathan.text.png": "icons/32x32.png",
-          "/usr/share/icons/hicolor/128x128/apps/com.johnathan.text.png": "icons/128x128.png",
-          "/usr/share/icons/hicolor/256x256@2/apps/com.johnathan.text.png": "icons/128x128@2x.png"
+          "/usr/share/icons/hicolor/32x32/apps/com.johnathan.pt.png": "icons/32x32.png",
+          "/usr/share/icons/hicolor/128x128/apps/com.johnathan.pt.png": "icons/128x128.png",
+          "/usr/share/icons/hicolor/256x256@2/apps/com.johnathan.pt.png": "icons/128x128@2x.png"
         }
       },
       "rpm": {
-        "desktopTemplate": "text.desktop.template",
+        "desktopTemplate": "pt.desktop.template",
         "files": {
-          "/usr/share/icons/hicolor/32x32/apps/com.johnathan.text.png": "icons/32x32.png",
-          "/usr/share/icons/hicolor/128x128/apps/com.johnathan.text.png": "icons/128x128.png",
-          "/usr/share/icons/hicolor/256x256@2/apps/com.johnathan.text.png": "icons/128x128@2x.png"
+          "/usr/share/icons/hicolor/32x32/apps/com.johnathan.pt.png": "icons/32x32.png",
+          "/usr/share/icons/hicolor/128x128/apps/com.johnathan.pt.png": "icons/128x128.png",
+          "/usr/share/icons/hicolor/256x256@2/apps/com.johnathan.pt.png": "icons/128x128@2x.png"
         }
       }
     }

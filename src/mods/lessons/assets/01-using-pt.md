@@ -1,10 +1,10 @@
 ---
-title: using text
+title: using pt
 ---
 
-# using text
+# using pt
 
-`text` is a local-first markdown editor: every note is a plain `.md` file on
+`pt` is a local-first markdown editor: every note is a plain `.md` file on
 disk (or in your Dropbox, on the mobile/web build), nothing is locked into a
 database, and nothing leaves your machine unless you ask it to. This lesson
 is a tour of what's here.

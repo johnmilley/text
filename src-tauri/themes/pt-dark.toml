@@ -1,4 +1,4 @@
-# text — theme file
+# pt — theme file
 #
 # Drop a copy of this file in this folder, change the colors, and it appears
 # in the theme picker (Ctrl+Shift+T). An optional sibling <name>.css file is
@@ -14,7 +14,7 @@
 #   border     hairlines                  cursor     caret
 #   selection  text selection             highlight  ==highlighted== text wash
 
-name = "Text Dark"
+name = "PT Dark"
 dark = true
 
 [colors]

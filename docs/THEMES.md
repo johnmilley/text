@@ -7,8 +7,8 @@ beyond reopening the picker.
 ## Where themes live
 
 ```
-~/.config/text/themes/        Linux
-~/Library/Application Support/text/themes/   macOS
+~/.config/pt/themes/        Linux
+~/Library/Application Support/pt/themes/   macOS
 ```
 
 Every bundled theme is written here on first run, so the folder is full of
@@ -30,7 +30,7 @@ accent = "#4a6e8a"    # interactive highlights, the active line, the caret
 
 Anything you leave out falls back to a sane default, so you can start with a
 handful of colors and fill the rest in as you go. To start from a complete
-file, copy `text-dark.toml` (it carries the full token reference in comments)
+file, copy `pt-dark.toml` (it carries the full token reference in comments)
 and recolor it.
 
 ## Color tokens

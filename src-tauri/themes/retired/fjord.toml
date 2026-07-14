@@ -1,5 +1,5 @@
 # text — Fjord: cool blue-grey dark theme on the Nord palette.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Fjord"
 dark = true

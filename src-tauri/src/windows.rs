@@ -19,10 +19,10 @@ pub struct WindowInit {
 
 static NEXT_WINDOW: AtomicUsize = AtomicUsize::new(1);
 
-/// Terminal launches: `text <file>` opens the current folder with that file
-/// in the editor (creating it if new); `text <dir>` opens that folder with
+/// Terminal launches: `pt <file>` opens the current folder with that file
+/// in the editor (creating it if new); `pt <dir>` opens that folder with
 /// the default display. Returns the main window's init params, or None for
-/// a plain `text`.
+/// a plain `pt`.
 pub fn cli_params() -> Option<WindowInit> {
     let arg = std::env::args().nth(1)?;
     if arg.starts_with('-') {
@@ -34,7 +34,7 @@ pub fn cli_params() -> Option<WindowInit> {
     if path.is_dir() {
         Some(WindowInit { root: clean(&path), file: None })
     } else {
-        // file may not exist yet (`text newnote.md`) — resolve via its parent
+        // file may not exist yet (`pt newnote.md`) — resolve via its parent
         let file = path
             .parent()
             .and_then(|d| d.canonicalize().ok())
@@ -62,7 +62,7 @@ pub fn open_window(
     // mirrors the main window's config in tauri.conf.json (and the macOS
     // overrides in tauri.macos.conf.json: native overlay title bar there)
     let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
-        .title("text")
+        .title("pt")
         .inner_size(1100.0, 760.0)
         .min_inner_size(480.0, 320.0);
     #[cfg(target_os = "macos")]

@@ -32,7 +32,7 @@ export async function webBootstrap(): Promise<boolean> {
   gate.id = "connect-gate";
   gate.innerHTML = `
     <div class="gate-box">
-      <h1>text</h1>
+      <h1>pt</h1>
       <p>Notes live in your Dropbox. Connect to read and write them —
       the app talks to Dropbox directly; nothing passes through a server.</p>
       <label id="gate-key-row" hidden>

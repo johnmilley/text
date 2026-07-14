@@ -296,6 +296,10 @@ export class Editor {
       cmTheme,
       baseHighlighting(),
       history(),
+      // lets Ctrl+D (selectNextOccurrence, from searchKeymap below) actually
+      // grow into a real multi-cursor selection — without this CM6 silently
+      // collapses any multi-range selection back down to one
+      EditorState.allowMultipleSelections.of(true),
       drawSelection(),
       EditorView.lineWrapping,
       this.lineNos.of(this.lineNumbersOn ? lineNumbers() : []),

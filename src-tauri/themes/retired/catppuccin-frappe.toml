@@ -1,5 +1,5 @@
 # text — Catppuccin Frappé: soft dark for bright rooms (catppuccin.com).
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Catppuccin Frappé"
 dark = true

@@ -1,4 +1,4 @@
-# text
+# pt
 
 A markdown editor that points at a folder of plain files and gets out of the
 way. Desktop app (Tauri 2: Rust backend, CodeMirror 6 frontend, no framework)
@@ -37,8 +37,8 @@ npm run tauri dev      # run
 npm run tauri build    # installers land in src-tauri/target/release/bundle/
 ```
 
-From a terminal: `text` reopens the last session, `text notes.md` opens (or
-creates) that file, `text ~/dir` opens that folder. On Wayland the binary
+From a terminal: `pt` reopens the last session, `pt notes.md` opens (or
+creates) that file, `pt ~/dir` opens that folder. On Wayland the binary
 disables WebKitGTK's DMA-BUF renderer (crashes on some compositor/driver
 combos); `WEBKIT_DISABLE_DMABUF_RENDERER=0` overrides.
 
@@ -75,7 +75,7 @@ combos); `WEBKIT_DISABLE_DMABUF_RENDERER=0` overrides.
   reload clean buffers silently, and a file edited both on disk and in the
   editor prompts keep-mine/take-theirs. Dropbox `(conflicted copy)` files
   are flagged in the tree. Autosave ~1s after you stop typing.
-- **Themes** — 30+ built-in, one TOML file each in `~/.config/text/themes/`;
+- **Themes** — 30+ built-in, one TOML file each in `~/.config/pt/themes/`;
   copy one and edit it, or add a `.css` beside it for anything the tokens
   miss ([docs/THEMES.md](docs/THEMES.md)). A dozen curated editor fonts
   (all SIL OFL) ship inside the app.
@@ -88,7 +88,7 @@ combos); `WEBKIT_DISABLE_DMABUF_RENDERER=0` overrides.
 
 `Ctrl+,` opens settings: theme and font with live preview, sizes, margins,
 line width, vim mode, daily/image folders, and every shortcut (click a
-binding, press new keys). It persists to `~/.config/text/config.toml`,
+binding, press new keys). It persists to `~/.config/pt/config.toml`,
 which stays hand-editable and documents every field in its comment header.
 
 ## Shortcuts

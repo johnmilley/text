@@ -1,5 +1,5 @@
 # text — Nord Light: the Snow Storm palette, frost accents on cool white.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Nord Light"
 dark = false

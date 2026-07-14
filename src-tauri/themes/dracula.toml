@@ -1,5 +1,5 @@
 # text — Dracula: the high-contrast purple/pink dark classic (draculatheme.com).
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Dracula"
 dark = true

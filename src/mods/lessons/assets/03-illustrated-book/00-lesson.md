@@ -22,7 +22,7 @@ together.
 
 A few deliberate choices worth copying for a book of your own:
 
-- **numeric prefixes.** `text`'s file tree sorts alphabetically, so `01-`,
+- **numeric prefixes.** `pt`'s file tree sorts alphabetically, so `01-`,
   `02-`, `03-` keeps chapters in reading order without any extra tooling.
   Rename `04-the-next-one.md` in later and it slots in correctly.
 - **one chapter per file.** Short files are easier to edit, easier to
@@ -38,7 +38,7 @@ A few deliberate choices worth copying for a book of your own:
   ---
   ```
 
-  Nothing in `text` requires this, but it's picked up by the `dataview` mod
+  Nothing in `pt` requires this, but it's picked up by the `dataview` mod
   if you want a query block elsewhere that lists chapters in order — see
   [[02-markdown-lesson]] for where dataview blocks are introduced.
 
@@ -53,7 +53,7 @@ in the markdown:
 </svg>
 ```
 
-This works because `text`'s renderer passes raw HTML straight through —
+This works because `pt`'s renderer passes raw HTML straight through —
 useful for anything markdown itself can't express. It also means the
 illustration lives *in the note*, with no image file to lose, rename, or
 forget to bundle when you copy the chapter elsewhere. `currentColor` picks
@@ -87,4 +87,4 @@ Right-click the `03-illustrated-book` folder → **publish…**. Choose:
 That's the whole recipe: numbered chapter files, frontmatter if you want
 queryable metadata, inline SVG or embedded images for illustration, `toc`
 for navigation, `publish` for output. Nothing here is special-cased for
-"book" — it's the same folder-of-notes model `text` uses everywhere else.
+"book" — it's the same folder-of-notes model `pt` uses everywhere else.

@@ -2,8 +2,8 @@
 Categories=Utility;TextEditor;
 {{#if comment}}Comment={{comment}}{{/if}}
 Exec={{exec}}
-StartupWMClass=text
-Icon=com.johnathan.text
+StartupWMClass=pt
+Icon=com.johnathan.pt
 Name={{name}}
 Terminal=false
 Type=Application

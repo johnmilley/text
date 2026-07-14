@@ -1,6 +1,6 @@
 /**
  * Themes for the web build: the same TOML files the desktop app seeds into
- * ~/.config/text/themes are bundled into the web bundle at build time (via
+ * ~/.config/pt/themes are bundled into the web bundle at build time (via
  * vite glob imports) and parsed here. No custom-themes folder on the web —
  * the bundled set is the whole set.
  */

@@ -1,9 +1,9 @@
 ---
 name: verify
-description: Drive the text editor's frontend headlessly (no Xvfb needed) to verify UI changes end-to-end.
+description: Drive the pt editor's frontend headlessly (no Xvfb needed) to verify UI changes end-to-end.
 ---
 
-# Verifying frontend changes in `text`
+# Verifying frontend changes in `pt`
 
 The app is Tauri (webkit2gtk) and this machine has no Xvfb/xdotool, but every
 frontend change can be verified by booting the **real app** in headless
@@ -22,16 +22,28 @@ the Rust core fills in production.
    no-ops `plugin:window|*` / `plugin:event|*`.
 4. Wait for `.cm-editor .cm-content`, then drive and `page.screenshot()`.
 
+## Web/mobile variant (PWA path: markdown keybar, body.web, Dropbox backend)
+
+Anything gated on `!platform.isTauri` never runs under the Tauri stub. To test
+it, inject **dropbox-fetch-stub.js** (in this dir) instead: it seeds a fake
+Dropbox token + `pt.config` in localStorage and answers the Dropbox HTTP API
+at the `window.fetch` level with an in-memory `/notes` vault, so the real web
+boot path (auth gate → Dropbox backend) runs for real. Add
+`page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true })`
+so `(pointer: coarse)` matches and the markdown keybar mounts. There is no
+soft keyboard headless, so the keybar sits at the bottom edge (visualViewport
+gap = 0) — correct for screenshots.
+
 ## Gotchas
 
 - **Use real input** (`page.mouse.click(x, y)`, `page.keyboard`): synthetic
   `dispatchEvent` clicks don't move the CodeMirror cursor and don't open tree rows.
 - Clicking a tree row opens the file **in the current tab**; to get a second tab
   click `#tab-new` first.
-- Session tabs restore from `localStorage` (`text.tabs`) — a fresh headless
+- Session tabs restore from `localStorage` (`pt.tabs`) — a fresh headless
   profile starts clean, no stubbing needed.
 - To test a light theme, edit the stub's `THEME` colors (copy tokens from
   `src-tauri/themes/*.toml`).
 - The web backend in `src/api.ts` rejects everything by design — don't try to
-  boot the app in a browser *without* the stub.
+  boot the app in a browser without *one of* the stubs above.
 - Kill vite when done: `pkill -f vite`.

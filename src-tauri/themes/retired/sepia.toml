@@ -1,5 +1,5 @@
 # text — Sepia: warm manuscript paper, in the spirit of focused writing apps.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Sepia"
 dark = false

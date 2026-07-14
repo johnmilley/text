@@ -71,7 +71,7 @@ anything a note can hold, a slide can hold.
 Two ways, depending on the room:
 
 1. **Publish, then open the page** and go fullscreen (`f`) — the deck
-   handles everything: navigation, progress, no dependency on `text` itself
+   handles everything: navigation, progress, no dependency on `pt` itself
    once it's published.
 2. **Zen mode** (`Alt+Z`) on the source note, scrolling section by
    section — no export step, good for an informal walkthrough where people

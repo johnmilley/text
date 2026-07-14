@@ -20,7 +20,7 @@ pub fn run() {
         .manage(watch::WatcherState::default())
         .manage(windows::WindowParams::default())
         .setup(|app| {
-            // `text <file|dir>` — stash CLI args as the main window's params
+            // `pt <file|dir>` — stash CLI args as the main window's params
             use tauri::Manager;
             if let Some(params) = windows::cli_params() {
                 let state = app.state::<windows::WindowParams>();
@@ -32,7 +32,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
-                let app_menu = SubmenuBuilder::new(app, "text")
+                let app_menu = SubmenuBuilder::new(app, "pt")
                     .about(Some(AboutMetadata::default()))
                     .separator()
                     .services()

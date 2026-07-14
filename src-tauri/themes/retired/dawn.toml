@@ -1,5 +1,5 @@
 # text — Dawn: soft early-morning light, rosy and quiet.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Dawn"
 dark = false

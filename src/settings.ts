@@ -229,22 +229,70 @@ export function openSettings(host: SettingsHost) {
     // ------------------------------------------------------------ top bar
     section("top bar");
 
-    row(
-      "quick capture icon",
-      checkbox(
-        () => host.config.toolbar_capture,
-        (v) => (host.config.toolbar_capture = v),
-        host.applyToolbar,
-      ),
-    );
-    row(
-      "calendar icon",
-      checkbox(
-        () => host.config.toolbar_calendar,
-        (v) => (host.config.toolbar_calendar = v),
-        host.applyToolbar,
-      ),
-    );
+    // capture/calendar/corkboard: shown/hidden individually, and reorderable
+    // — up/down instead of drag-and-drop, since there are only three of them
+    const TOOLBAR_ICONS: { id: string; label: string; get: () => boolean; set: (v: boolean) => void }[] = [
+      {
+        id: "capture",
+        label: "quick capture icon",
+        get: () => host.config.toolbar_capture,
+        set: (v) => (host.config.toolbar_capture = v),
+      },
+      {
+        id: "calendar",
+        label: "calendar icon",
+        get: () => host.config.toolbar_calendar,
+        set: (v) => (host.config.toolbar_calendar = v),
+      },
+      {
+        id: "corkboard",
+        label: "corkboard icon",
+        get: () => host.config.toolbar_corkboard,
+        set: (v) => (host.config.toolbar_corkboard = v),
+      },
+      {
+        id: "scratchpad",
+        label: "scratchpad icon",
+        get: () => host.config.toolbar_scratchpad,
+        set: (v) => (host.config.toolbar_scratchpad = v),
+      },
+    ];
+    const knownIds = TOOLBAR_ICONS.map((i) => i.id);
+    host.config.toolbar_order = (host.config.toolbar_order ?? []).filter((id) => knownIds.includes(id));
+    for (const id of knownIds) if (!host.config.toolbar_order.includes(id)) host.config.toolbar_order.push(id);
+
+    const orderList = el("div", "toolbar-order-list");
+    const renderOrderList = () => {
+      orderList.replaceChildren();
+      host.config.toolbar_order.forEach((id, i) => {
+        const icon = TOOLBAR_ICONS.find((t) => t.id === id);
+        if (!icon) return;
+        const item = el("div", "toolbar-order-item");
+        item.appendChild(checkbox(icon.get, icon.set, host.applyToolbar));
+        item.appendChild(el("span", "toolbar-order-label", icon.label));
+        const move = (by: number) => {
+          const j = i + by;
+          const order = host.config.toolbar_order;
+          [order[i], order[j]] = [order[j], order[i]];
+          host.applyToolbar();
+          host.save();
+          renderOrderList();
+        };
+        const up = el("button", "toolbar-order-btn", "↑");
+        up.title = "move up";
+        up.disabled = i === 0;
+        up.addEventListener("click", () => move(-1));
+        const down = el("button", "toolbar-order-btn", "↓");
+        down.title = "move down";
+        down.disabled = i === host.config.toolbar_order.length - 1;
+        down.addEventListener("click", () => move(1));
+        item.append(up, down);
+        orderList.appendChild(item);
+      });
+    };
+    renderOrderList();
+    body.appendChild(orderList);
+
     row(
       "edit/preview toggle icon",
       checkbox(
@@ -464,7 +512,7 @@ export function openSettings(host: SettingsHost) {
     for (const item of host.helpItems) {
       helpRow(item.label, item.button ?? "open", item.run, item.hint);
     }
-    body.appendChild(el("div", "set-hint settings-version", `text v${host.appVersion}`));
+    body.appendChild(el("div", "set-hint settings-version", `pt v${host.appVersion}`));
 
     // ---------------------------------------------------------------- file
     const foot = el("div", "settings-foot");

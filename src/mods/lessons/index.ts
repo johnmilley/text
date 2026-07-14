@@ -8,7 +8,7 @@
 
 import type { Mod, TextAPI } from "../types";
 import readme from "./assets/00-readme.md?raw";
-import usingText from "./assets/01-using-text.md?raw";
+import usingText from "./assets/01-using-pt.md?raw";
 import markdownLesson from "./assets/02-markdown-lesson.md?raw";
 import bookLesson from "./assets/03-illustrated-book/00-lesson.md?raw";
 import bookCh1 from "./assets/03-illustrated-book/01-the-hare-boasts.md?raw";
@@ -23,7 +23,7 @@ import corkboardLesson from "./assets/09-corkboard.md?raw";
 
 const FILES: [string, string][] = [
   ["00-readme.md", readme],
-  ["01-using-text.md", usingText],
+  ["01-using-pt.md", usingText],
   ["02-markdown-lesson.md", markdownLesson],
   ["03-illustrated-book/00-lesson.md", bookLesson],
   ["03-illustrated-book/01-the-hare-boasts.md", bookCh1],

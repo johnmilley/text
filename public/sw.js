@@ -7,7 +7,7 @@
  * offline yet fresh after deploys.
  */
 
-const CACHE = "text-shell-v1";
+const CACHE = "pt-shell-v1";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());

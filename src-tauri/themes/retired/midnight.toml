@@ -1,5 +1,5 @@
 # text — Midnight: true deep black/onyx, for OLED and late nights.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Midnight"
 dark = true

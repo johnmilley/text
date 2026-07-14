@@ -1,5 +1,5 @@
 # text — Catppuccin Latte: the clean light flavor (catppuccin.com).
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Catppuccin Latte"
 dark = false

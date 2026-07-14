@@ -1,5 +1,5 @@
 # text — Nord: the arctic, muted blue palette (nordtheme.com).
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Nord"
 dark = true

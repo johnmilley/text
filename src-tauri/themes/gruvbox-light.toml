@@ -1,5 +1,5 @@
 # text — Gruvbox Light: the warm, retro counterpart to Gruvbox.
-# See text-dark.toml for the token reference.
+# See pt-dark.toml for the token reference.
 
 name = "Gruvbox Light"
 dark = false
