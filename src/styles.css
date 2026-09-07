@@ -2585,4 +2585,12 @@ body.web #status {
   color: var(--fg-muted);
   border-left: 2px solid var(--border);
   padding: 2px 8px;
+  white-space: pre-wrap;
+  max-height: 9em;
+  overflow: auto;
+}
+/* the block does not render right now — usually because it is half typed, so
+   the last good diagram is still on screen behind the message */
+.mermaid-block.mermaid-stale svg {
+  opacity: 0.35;
 }

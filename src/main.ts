@@ -3204,6 +3204,7 @@ function renderPreviewBlocks(root: HTMLElement): () => void {
     const ctx: BlockRenderContext = {
       el: box,
       source: code.textContent ?? "",
+      rerender: false,
       onInvalidate: blockRenderRuntime.onInvalidate,
       requestMeasure: () => {},
     };

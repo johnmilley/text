@@ -24,6 +24,9 @@ export interface BlockRenderContext {
   el: HTMLElement;
   /** The fenced block's source, without the ``` fences. */
   source: string;
+  /** True when this render replaces earlier output in the same `el` — i.e. the
+   * user edited the block. Renderers use it to debounce expensive work. */
+  rerender: boolean;
   /** Subscribe to "the folder changed"; returns an unsubscribe. */
   onInvalidate(cb: () => void): () => void;
   /** Ask the editor to re-measure after async/layout changes. */
@@ -33,6 +36,14 @@ export interface BlockRenderContext {
 export interface BlockRendererSpec {
   /** Fenced-code language this renderer handles, e.g. `"dataview"`. */
   lang: string;
+  /**
+   * Leave the previous output in `ctx.el` when re-rendering an edited block,
+   * instead of clearing it first. For a renderer that resolves asynchronously
+   * this keeps the old output on screen until the new one is ready, so the
+   * block does not collapse and re-expand on every keystroke — at the cost of
+   * having to replace its own content rather than append to it.
+   */
+  retain?: boolean;
   /** Fill `ctx.el`; optionally return a cleanup run when the widget is torn down. */
   render(ctx: BlockRenderContext): void | (() => void);
 }
@@ -45,6 +56,10 @@ export interface BlockRenderRuntime {
 }
 
 const FENCE_LANG = /^(`{3,}|~{3,})\s*([A-Za-z0-9_-]+)\s*$/;
+
+/** Teardown for the renderer currently mounted in a widget's wrapper. Kept off
+ * the element so a mod's `replaceChildren()` can never disturb it. */
+const teardowns = new WeakMap<HTMLElement, () => void>();
 
 class BlockWidget extends WidgetType {
   constructor(
@@ -67,23 +82,53 @@ class BlockWidget extends WidgetType {
   toDOM(view: EditorView) {
     const box = document.createElement("div");
     box.className = "block-widget";
-    const spec = this.rt.specs.get(this.lang);
-    if (!spec) return box;
+    if (!this.rt.specs.has(this.lang)) return box;
     // the mod owns its own element and may replaceChildren() on it at any
     // time (dataview re-renders when its query resolves) — so the edit button
     // lives on the wrapper, out of reach
     const target = document.createElement("div");
     box.appendChild(target);
+    this.mount(box, target, view, false);
+    if (this.replacing) box.appendChild(this.editButton(view));
+    return box;
+  }
+
+  /**
+   * Adopt the DOM of the *same* block one edit ago instead of building a new
+   * widget from scratch.
+   *
+   * Without this, typing inside a fence throws the rendered output away and
+   * rebuilds it on every keystroke — a large mermaid diagram disappears,
+   * relayouts and reappears each time. CodeMirror offers any unclaimed tile of
+   * the same class, so this refuses anything that isn't the same language and
+   * placement: a mermaid block must never inherit a dataview block's output.
+   */
+  updateDOM(dom: HTMLElement, view: EditorView, old: WidgetType) {
+    if (!(old instanceof BlockWidget)) return false;
+    if (old.lang !== this.lang || old.replacing !== this.replacing) return false;
+    const target = dom.firstElementChild;
+    if (!(target instanceof HTMLElement)) return false; // no renderer was mounted
+    teardowns.get(dom)?.();
+    teardowns.delete(dom);
+    const spec = this.rt.specs.get(this.lang);
+    if (!spec) return false;
+    if (!spec.retain) target.replaceChildren();
+    this.mount(dom, target, view, true);
+    return true;
+  }
+
+  private mount(box: HTMLElement, target: HTMLElement, view: EditorView, rerender: boolean) {
+    const spec = this.rt.specs.get(this.lang);
+    if (!spec) return;
     const ctx: BlockRenderContext = {
       el: target,
       source: this.src,
+      rerender,
       onInvalidate: this.rt.onInvalidate,
       requestMeasure: () => view.requestMeasure(),
     };
     const cleanup = spec.render(ctx);
-    if (cleanup) box.addEventListener("block-destroy", cleanup as EventListener);
-    if (this.replacing) box.appendChild(this.editButton(view));
-    return box;
+    if (cleanup) teardowns.set(box, cleanup);
   }
 
   /**
@@ -114,7 +159,8 @@ class BlockWidget extends WidgetType {
   }
 
   destroy(dom: HTMLElement) {
-    dom.dispatchEvent(new Event("block-destroy"));
+    teardowns.get(dom)?.();
+    teardowns.delete(dom);
   }
 }
 

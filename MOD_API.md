@@ -192,6 +192,16 @@ preview edit button) can be wiped by a re-render.
 can keep itself current. Return a cleanup function to release subscriptions.
 See [`src/mods/dataview`](src/mods/dataview) for the full example.
 
+**Re-rendering an edited block.** Typing inside a fence re-runs `render` on the
+*same* `ctx.el`, with `ctx.rerender` set — use it to debounce work that is too
+expensive to redo per keystroke. The host clears `ctx.el` first unless the spec
+sets `retain: true`, which leaves the previous output in place so an async
+renderer can keep it on screen until the new one is ready; a retaining renderer
+must then replace its own content rather than append to it. `src/mods/mermaid`
+does both: it waits for a pause in the typing, and leaves the last diagram that
+did parse up (dimmed) with the parse error beneath it, so a half-typed diagram
+neither collapses the block nor costs a full layout pass.
+
 The same renderers also run in the **markdown preview pane** (Ctrl+Shift+M):
 each fenced block of a registered `lang` is replaced by your widget there too,
 so `dataview` results (not the raw query) show up in the preview. `render(ctx)`
