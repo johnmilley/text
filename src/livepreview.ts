@@ -14,6 +14,7 @@ import {
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { frontmatterLines } from "./mdstyle";
+import { type Align, alignOf, isSepRow, isTableLine } from "./tables";
 
 /**
  * Live preview: the markdown syntax is *hidden* rather than merely styled, on
@@ -30,10 +31,12 @@ import { frontmatterLines } from "./mdstyle";
  * takes the *punctuation* away once you've stopped looking at it. With live
  * preview off, mdstyle alone is the old source-with-styling behaviour.
  *
- * Phase 1 is deliberately inline-only. A CodeMirror view plugin may not emit
- * decorations that replace across a line boundary, so multi-line constructs —
- * a fenced block's ``` lines, frontmatter, `---` rules — need a StateField
- * and are handled by `liveBlocks` in this file's companion phase.
+ * The work is split in two because CodeMirror is: a view plugin may not emit a
+ * decoration that replaces across a line boundary, so anything spanning lines
+ * — frontmatter, tables — lives in the `liveBlocks` state field below, and
+ * everything within a line lives in the `livePlugin` view plugin. Fenced
+ * blocks a mod renders (mermaid, dataview) are the same idea and are handled
+ * in `blockrender.ts`, next to the widget lifecycle they need.
  */
 
 // ------------------------------------------------------------------ reveal
@@ -318,6 +321,192 @@ const livePlugin = ViewPlugin.fromClass(
   },
 );
 
+// ------------------------------------------------------------ inline render
+// Small markdown → DOM pass, for text that lives *inside* a widget (table
+// cells) where the editor's own decorations cannot reach. It builds real
+// nodes rather than assigning innerHTML, so note content is never parsed as
+// markup. Deliberately limited to the inline constructs live preview hides.
+
+const INLINE_RE =
+  /(\*\*|__)(.+?)\1|(\*|_)(.+?)\3|~~(.+?)~~|==(.+?)==|`([^`]+)`|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]|\[([^\]]*)\]\(([^)]*)\)/g;
+
+function renderInline(text: string): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  let last = 0;
+  for (const m of text.matchAll(INLINE_RE)) {
+    const at = m.index;
+    if (at > last) frag.append(text.slice(last, at));
+    let node: HTMLElement;
+    if (m[2] !== undefined) {
+      node = document.createElement("strong");
+      node.append(renderInline(m[2]));
+    } else if (m[4] !== undefined) {
+      node = document.createElement("em");
+      node.append(renderInline(m[4]));
+    } else if (m[5] !== undefined) {
+      node = document.createElement("del");
+      node.append(renderInline(m[5]));
+    } else if (m[6] !== undefined) {
+      node = document.createElement("mark");
+      node.append(renderInline(m[6]));
+    } else if (m[7] !== undefined) {
+      node = document.createElement("code");
+      node.textContent = m[7];
+    } else if (m[8] !== undefined) {
+      node = document.createElement("span");
+      node.className = "cm-wikilink";
+      node.textContent = m[9] ?? m[8];
+    } else {
+      node = document.createElement("span");
+      node.className = "cm-mdlink";
+      node.textContent = m[10] ?? "";
+      node.title = m[11] ?? "";
+    }
+    frag.append(node);
+    last = at + m[0].length;
+  }
+  if (last < text.length) frag.append(text.slice(last));
+  return frag;
+}
+
+// ------------------------------------------------------------ tables (block)
+
+interface Cell {
+  text: string;
+  /** offset of the cell's text, relative to the start of the table */
+  at: number;
+}
+
+/** Split one table line into cells, keeping each cell's source offset so a
+ * click on a rendered cell can put the caret back in the right place. */
+function splitRow(line: string, lineStart: number, tableStart: number): Cell[] {
+  const cells: Cell[] = [];
+  let i = 0;
+  while (i < line.length && /\s/.test(line[i])) i++;
+  if (line[i] === "|") i++;
+  let cur = "";
+  let curAt = i;
+  for (; i < line.length; i++) {
+    if (line[i] === "\\" && line[i + 1] === "|") {
+      cur += "\\|";
+      i++;
+    } else if (line[i] === "|") {
+      cells.push({ text: cur.trim(), at: lineStart + curAt - tableStart });
+      cur = "";
+      curAt = i + 1;
+    } else {
+      cur += line[i];
+    }
+  }
+  if (cur.trim() || cells.length === 0) {
+    cells.push({ text: cur.trim(), at: lineStart + curAt - tableStart });
+  }
+  return cells;
+}
+
+/** A rendered pipe table. Clicking a cell drops the caret into that cell's
+ * source, which reveals the table and hands it back to tables.ts — so the
+ * Tab/Enter cell editing is untouched, it just isn't what you look at. */
+class TableWidget extends WidgetType {
+  constructor(
+    private readonly rows: Cell[][],
+    private readonly aligns: Align[],
+    private readonly headed: boolean,
+    /** the table's source, so two different tables are never reused */
+    private readonly key: string,
+  ) {
+    super();
+  }
+
+  eq(other: TableWidget) {
+    return other.key === this.key;
+  }
+
+  toDOM(view: EditorView) {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-table-wrap";
+    const table = document.createElement("table");
+    table.className = "cm-table";
+    const put = (row: Cell[], tag: "th" | "td", parent: HTMLElement) => {
+      const tr = document.createElement("tr");
+      row.forEach((cell, c) => {
+        const td = document.createElement(tag);
+        if (this.aligns[c]) td.style.textAlign = this.aligns[c]!;
+        td.append(renderInline(cell.text));
+        td.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          const at = view.posAtDOM(wrap) + cell.at;
+          view.dispatch({
+            selection: { anchor: Math.min(at, view.state.doc.length) },
+            scrollIntoView: true,
+          });
+          view.focus();
+        });
+        tr.appendChild(td);
+      });
+      parent.appendChild(tr);
+    };
+    let body = this.rows;
+    if (this.headed && body.length) {
+      const head = document.createElement("thead");
+      put(body[0], "th", head);
+      table.appendChild(head);
+      body = body.slice(1);
+    }
+    const tbody = document.createElement("tbody");
+    for (const row of body) put(row, "td", tbody);
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
+/** Replace each pipe table the caret is outside of with a rendered one. */
+function tableDecorations(state: EditorState): Range<Decoration>[] {
+  const out: Range<Decoration>[] = [];
+  const doc = state.doc;
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name !== "Table") return;
+      const first = doc.lineAt(node.from);
+      const last = doc.lineAt(node.to);
+      const from = first.from;
+      const to = last.to;
+      // being edited — tables.ts owns it, leave the source alone
+      if (state.selection.ranges.some((sel) => sel.to >= from && sel.from <= to)) return false;
+
+      const rows: Cell[][] = [];
+      let aligns: Align[] = [];
+      let headed = false;
+      for (let n = first.number; n <= last.number; n++) {
+        const line = doc.line(n);
+        if (!isTableLine(line.text)) continue;
+        const cells = splitRow(line.text, line.from, from);
+        if (isSepRow(cells.map((c) => c.text))) {
+          aligns = cells.map((c) => alignOf(c.text));
+          headed = rows.length === 1; // the row above the separator is the head
+          continue;
+        }
+        rows.push(cells);
+      }
+      if (!rows.length) return false;
+      const key = doc.sliceString(from, to);
+      out.push(
+        Decoration.replace({
+          widget: new TableWidget(rows, aligns, headed, key),
+          block: true,
+        }).range(from, to),
+      );
+      return false; // nothing inside the table needs visiting
+    },
+  });
+  return out;
+}
+
 // ------------------------------------------------------- frontmatter (block)
 
 /**
@@ -329,38 +518,60 @@ const livePlugin = ViewPlugin.fromClass(
  * state field also means it sees the whole document rather than the viewport,
  * which is fine here — frontmatter is always the first few lines.
  */
-function buildFrontmatterFold(state: EditorState): DecorationSet {
+function frontmatterDecoration(state: EditorState): Range<Decoration> | null {
   const range = frontmatterLines(state);
-  if (!range) return Decoration.none;
+  if (!range) return null;
   const from = state.doc.line(range.first).from;
   const to = state.doc.line(range.last).to;
   // editing it — leave the source alone
   for (const sel of state.selection.ranges) {
-    if (sel.to >= from && sel.from <= to) return Decoration.none;
+    if (sel.to >= from && sel.from <= to) return null;
   }
   const keys: string[] = [];
   for (let n = range.first + 1; n < range.last; n++) {
     const m = /^([A-Za-z_][\w-]*)\s*:/.exec(state.doc.line(n).text);
     if (m) keys.push(m[1]);
   }
-  return Decoration.set([
-    Decoration.replace({
-      widget: new FrontmatterWidget(keys.join(" · ")),
-      block: true,
-    }).range(from, to),
-  ]);
+  return Decoration.replace({
+    widget: new FrontmatterWidget(keys.join(" · ")),
+    block: true,
+  }).range(from, to);
 }
 
-const frontmatterFold = StateField.define<DecorationSet>({
-  create: (state) => buildFrontmatterFold(state),
+/**
+ * The block half of live preview: replacements that swallow line breaks, which
+ * only a state field may provide.
+ *
+ * Unlike the inline plugin this sees the whole document rather than the
+ * viewport, so both passes stop as soon as they have what they need — the
+ * frontmatter is the first few lines, and the table walk never descends into a
+ * table it has already measured.
+ */
+function buildBlocks(state: EditorState): DecorationSet {
+  const ranges = tableDecorations(state);
+  const fm = frontmatterDecoration(state);
+  if (fm) ranges.push(fm);
+  return Decoration.set(ranges, true);
+}
+
+const liveBlocks = StateField.define<DecorationSet>({
+  create: (state) => buildBlocks(state),
   update(deco, tr) {
-    if (!tr.docChanged && !tr.selection) return deco;
-    return buildFrontmatterFold(tr.state);
+    // the tree comparison catches background parsing finishing a document
+    // that was too long to parse in one go
+    if (
+      !tr.docChanged &&
+      !tr.selection &&
+      syntaxTree(tr.startState) === syntaxTree(tr.state)
+    ) {
+      return deco;
+    }
+    return buildBlocks(tr.state);
   },
   provide: (field) => EditorView.decorations.from(field),
 });
 
 /** Live preview for markdown documents (see the file comment). */
 export function livePreview(): Extension {
-  return [livePlugin, frontmatterFold];
+  return [livePlugin, liveBlocks];
 }

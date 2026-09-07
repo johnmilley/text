@@ -11,11 +11,17 @@ import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/lang
 import { tags as t } from "@lezer/highlight";
 
 /**
- * Source-with-inline-styling: the markdown characters always stay visible,
- * but lines and spans get typographic treatment. Sizing/weight for block
- * elements is done with line classes (so `#` marks scale with their heading);
- * inline spans go through one HighlightStyle that doubles as the syntax
- * highlighting for code blocks and non-markdown files.
+ * Typographic treatment for markdown source: lines and spans are styled in
+ * place, without the text being rewritten. Sizing/weight for block elements is
+ * done with line classes (so `#` marks scale with their heading); inline spans
+ * go through one HighlightStyle that doubles as the syntax highlighting for
+ * code blocks and non-markdown files.
+ *
+ * This says how the *content* looks. Whether the markers themselves are on
+ * screen is `livepreview.ts`'s decision — on by default, it hides them
+ * everywhere but the line being edited, and this file's styling is what's
+ * left. With live preview off, everything here shows against visible markup,
+ * which is how the editor behaved before that existed.
  */
 
 const inlineHighlight = HighlightStyle.define([

@@ -61,6 +61,11 @@
 
         <section id="pane-search" class="pane">
           <input id="search-input" placeholder="search folder…" spellcheck="false" />
+          <div id="search-opts">
+            <button data-opt="case_sensitive" title="Match case (off = smart case: uppercase in the query makes it sensitive)" aria-pressed="false">Aa</button>
+            <button data-opt="whole_word" title="Whole words only" aria-pressed="false">ab|</button>
+            <button data-opt="regex" title="Regular expression" aria-pressed="false">.*</button>
+          </div>
           <div id="search-results" class="hit-list"></div>
         </section>
 

@@ -87,13 +87,23 @@ vault ever moves into a dedicated app folder.
   note content or API responses.
 - **Deletes** go to Dropbox's trash (30-day recovery), mirroring the
   desktop's native-trash behavior.
+- **File history** (`Ctrl+Shift+H`) stores nothing extra on the web: it
+  lists Dropbox's own file revisions and downloads one on request. Only the
+  desktop build keeps local snapshots, and it keeps them in
+  `~/.config/pt/history/`, outside the notes folder — so note content is
+  never uploaded, never cached by the service worker, and never written
+  anywhere the sync client can see it. Worth knowing on the desktop side:
+  that directory holds plaintext copies of recent note versions and is only
+  as protected as the user account, the same as the notes themselves.
 
 ## Invariants to keep when changing code
 
 1. Never widen `script-src` or `connect-src` in the CSP.
 2. Never commit or embed the Dropbox app secret.
 3. Never move tokens somewhere readable cross-origin, and never cache note
-   content in the service worker without revisiting this document.
+   content in the service worker without revisiting this document. The same
+   goes for version history: the web build must keep reading Dropbox
+   revisions rather than storing note text in the browser.
 4. New third-party dependencies for the web build deserve a look at what
    they fetch at runtime (the CSP will break silent offenders — that's a
    feature).

@@ -1660,6 +1660,7 @@ async function savePane2(): Promise<boolean> {
   if (!pane2Path || pane2Saving || !editor2) return true;
   pane2Saving = true;
   try {
+    void api.snapshotFile(pane2Path, editor2.text).catch(() => {}); // see save()
     const result = await api.writeFile(pane2Path, editor2.text, pane2Mtime);
     if (result.conflict) {
       showIssue("the split-pane file changed on disk while you were editing it", [
@@ -2219,6 +2220,10 @@ async function save(): Promise<boolean> {
     return true;
   saving = true;
   try {
+    // record a version before overwriting. The backend throttles and skips
+    // unchanged content, and a failure here must never stop the save — the
+    // whole point is that it costs the user nothing.
+    void api.snapshotFile(currentPath, editor.text).catch(() => {});
     const result = await api.writeFile(currentPath, editor.text, currentMtime);
     if (result.conflict) {
       const path = currentPath;
@@ -2667,6 +2672,71 @@ async function createAndOpen(name: string) {
   await openFile(path);
 }
 
+/**
+ * Browse the versions kept for the open note and put one back.
+ *
+ * Restoring is an ordinary edit — it goes through the editor, so Ctrl+Z undoes
+ * it and the next autosave writes it out. Nothing is destroyed by looking.
+ */
+async function fileHistory() {
+  const path = focusedPane === 2 && pane2Path ? pane2Path : currentPath;
+  if (!path) return void infoBox((box) => {
+    const msg = document.createElement("div");
+    msg.className = "modal-caption";
+    msg.textContent = "no file open";
+    box.appendChild(msg);
+  });
+  const versions = await api.listHistory(path).catch(() => []);
+  if (!versions.length) {
+    return void infoBox((box) => {
+      const msg = document.createElement("div");
+      msg.className = "modal-caption";
+      msg.textContent = platform.isTauri
+        ? "no versions saved yet — one is kept every couple of minutes as you edit"
+        : "Dropbox has no earlier revisions of this file";
+      box.appendChild(msg);
+    });
+  }
+  const chosen = await pick(
+    versions.map((v) => ({
+      label: describeAge(v.ts),
+      detail: `${new Date(v.ts * 1000).toLocaleString()} · ${v.bytes} bytes`,
+      value: String(v.ts),
+    })),
+    { placeholder: `versions of ${rel(path)}…` },
+  );
+  if (!chosen) return;
+  const text = await api.readHistory(path, Number(chosen.value)).catch(() => null);
+  if (text === null) {
+    return void infoBox((box) => {
+      const msg = document.createElement("div");
+      msg.className = "modal-caption";
+      msg.textContent = "that version could not be read";
+      box.appendChild(msg);
+    });
+  }
+  const ed = focusedPane === 2 && editor2 ? editor2 : editor;
+  if (ed.text === text) {
+    showIssue("that version is identical to what's open", []);
+    return;
+  }
+  ed.replaceContent(text);
+  showIssue(`restored the version from ${describeAge(Number(chosen.value))} — Ctrl+Z undoes it`, []);
+}
+
+/** "4 minutes ago", "yesterday" — the label people actually scan for. */
+function describeAge(ts: number): string {
+  const secs = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+  if (secs < 90) return "just now";
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
 function openWikilink(target: string) {
   const hit = notes.find((n) => n.name.toLowerCase() === target.toLowerCase());
   if (hit) return void openFile(hit.path);
@@ -2829,12 +2899,15 @@ function renderHits(container: HTMLElement, hits: api.Hit[], empty: string) {
     return;
   }
   const files = new Set(hits.map((h) => h.path)).size;
+  const found = hits.reduce((n, h) => n + h.matches.length, 0);
+  const plural = (n: number, word: string) =>
+    `${n} ${n === 1 ? word : word.endsWith("h") ? word + "es" : word + "s"}`;
   const tally = document.createElement("div");
   tally.className = "hit-tally";
   tally.textContent =
     hits.length >= SEARCH_CAP
-      ? `first ${hits.length} lines in ${files} file${files === 1 ? "" : "s"} — narrow the search`
-      : `${hits.length} line${hits.length === 1 ? "" : "s"} in ${files} file${files === 1 ? "" : "s"}`;
+      ? `first ${plural(found, "match")} in ${plural(files, "file")} — narrow the search`
+      : `${plural(found, "match")} on ${plural(hits.length, "line")} in ${plural(files, "file")}`;
   container.replaceChildren(
     tally,
     ...hits.map((hit) => {
@@ -2845,11 +2918,19 @@ function renderHits(container: HTMLElement, hits: api.Hit[], empty: string) {
       where.textContent = `${rel(hit.path)}:${hit.line}`;
       const text = document.createElement("div");
       text.className = "hit-text";
-      const before = hit.text.slice(0, hit.start);
-      const mark = document.createElement("mark");
-      mark.textContent = hit.text.slice(hit.start, hit.end);
-      text.append(before.length > 80 ? "…" + before.slice(-80) : before, mark,
-        hit.text.slice(hit.end));
+      // every match on the line is highlighted, not just the first
+      let cursor = 0;
+      hit.matches.forEach(([start, end], i) => {
+        const before = hit.text.slice(cursor, start);
+        // only the run before the *first* match is trimmed — that's the one
+        // that can push the match off the right of a narrow sidebar
+        text.append(i === 0 && before.length > 80 ? "…" + before.slice(-80) : before);
+        const mark = document.createElement("mark");
+        mark.textContent = hit.text.slice(start, end);
+        text.append(mark);
+        cursor = end;
+      });
+      text.append(hit.text.slice(cursor));
       row.append(where, text);
       row.addEventListener("click", async () => {
         await openFile(hit.path);
@@ -2860,6 +2941,27 @@ function renderHits(container: HTMLElement, hits: api.Hit[], empty: string) {
   );
 }
 
+/** Search modifiers, persisted for the session (they're a per-query mood,
+ * not a preference worth writing to config.toml). */
+const searchOpts: api.SearchOpts = {
+  regex: false,
+  case_sensitive: false,
+  whole_word: false,
+};
+
+function initSearchOpts() {
+  for (const btn of document.querySelectorAll<HTMLButtonElement>("#search-opts button")) {
+    const key = btn.dataset.opt as keyof api.SearchOpts;
+    btn.addEventListener("click", () => {
+      searchOpts[key] = !searchOpts[key];
+      btn.classList.toggle("active", searchOpts[key]);
+      btn.setAttribute("aria-pressed", String(searchOpts[key]));
+      void runSearch();
+      $("#search-input").focus();
+    });
+  }
+}
+
 async function runSearch() {
   if (!root) return;
   const query = $<HTMLInputElement>("#search-input").value;
@@ -2867,7 +2969,14 @@ async function runSearch() {
     $("#search-results").replaceChildren();
     return;
   }
-  const hits = await api.searchText(root, query);
+  let hits: api.Hit[];
+  try {
+    hits = await api.searchText(root, query, searchOpts);
+  } catch {
+    // half-typed regex — say so instead of blanking the pane
+    renderHits($("#search-results"), [], "incomplete pattern");
+    return;
+  }
   renderHits($("#search-results"), hits, "no matches");
 }
 
@@ -3491,6 +3600,7 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "preview", combo: "ctrl+shift+m", what: "markdown preview (rendered, beside the editor)", run: togglePreview },
   { id: "live_preview", combo: "ctrl+shift+l", what: "live preview (hide markdown syntax off the cursor line)", run: toggleLivePreview },
   { id: "status_bar", combo: "", what: "status bar (words / characters / line:col)", run: toggleStatusBar },
+  { id: "file_history", combo: "ctrl+shift+h", what: "file history — restore an earlier version", run: () => void fileHistory() },
   { id: "focus_tree", combo: "ctrl+e", what: "focus file tree (arrows move, enter opens, esc returns)", run: focusTree },
   { id: "move_file", combo: "ctrl+m", what: "move the selected file/folder to another folder", run: moveSelected },
   { id: "zen", combo: "alt+z", what: "zen mode (fullscreen, typewriter) — also F11", run: () => void toggleZen() },
@@ -3935,6 +4045,7 @@ async function init() {
     if ((e.target as HTMLElement).closest("img")) e.preventDefault();
   });
   initResizer();
+  initSearchOpts();
   initPdfView();
   // wheel zooms images, like a standalone image viewer
   $("#image-stage").addEventListener(

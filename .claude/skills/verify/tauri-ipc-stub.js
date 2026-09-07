@@ -53,6 +53,11 @@ Text below the rule, then a rendered block:
 LIST
 \`\`\`
 
+| Feature | Status | Notes |
+| --- | :---: | ---: |
+| tables | **done** | click a cell |
+| history | \`wip\` | ~~later~~ |
+
 Done.
 `;
   // exercises every construct live preview hides (livepreview.ts)
@@ -131,6 +136,15 @@ const notHidden = "** stays visible in code **";
     { name: "paper.tex", path: "/vault/paper.tex", is_dir: false, mtime: 1, children: null },
   ];
 
+  // two stored versions of notes.md, for the file-history picker
+  const NOW = Math.floor(Date.now() / 1000);
+  const HISTORY = {
+    "/vault/notes.md": [
+      { ts: NOW - 600, text: "# Alpha\n\nthe version from ten minutes ago.\n" },
+      { ts: NOW - 90000, text: "# Alpha\n\nthe version from yesterday.\n" },
+    ],
+  };
+
   const THEME = { id: "pt-dark", name: "pt dark", dark: true, colors: {}, fonts: {}, css: null };
 
   let cbId = 0;
@@ -161,20 +175,28 @@ const notHidden = "** stays visible in code **";
     create_file: ({ path }) => { FILES[path] = ""; },
     create_dir: () => null,
     collect_notes: () => [],
-    search_text: ({ query }) => {
+    search_text: ({ query, opts }) => {
+      const ci = !opts?.case_sensitive && !/[A-Z]/.test(query);
+      let body = opts?.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (opts?.whole_word) body = `\\b(?:${body})\\b`;
+      const re = new RegExp(body, ci ? "gi" : "g"); // throws on a bad pattern
       const hits = [];
-      const ci = !/[A-Z]/.test(query);
       for (const [path, text] of Object.entries(FILES)) {
         text.split("\n").forEach((line, i) => {
-          const hay = ci ? line.toLowerCase() : line;
-          const start = hay.indexOf(ci ? query.toLowerCase() : query);
-          if (start < 0) return;
-          hits.push({ path, line: i + 1, text: line.slice(0, 400), start, end: start + query.length });
+          const matches = [];
+          for (const m of line.matchAll(re)) {
+            matches.push([m.index, m.index + m[0].length]);
+            if (!m[0].length) break;
+          }
+          if (matches.length) hits.push({ path, line: i + 1, text: line.slice(0, 400), matches });
         });
       }
       return hits;
     },
     find_backlinks: () => [],
+    snapshot_file: () => false,
+    list_history: ({ path }) => (HISTORY[path] ?? []).map((v) => ({ ts: v.ts, bytes: v.text.length })),
+    read_history: ({ path, ts }) => (HISTORY[path] ?? []).find((v) => v.ts === ts)?.text ?? "",
     render_preview: ({ text }) => `<p>${(text || "").slice(0, 40)}</p>`,
     read_image: () => ({ base64: "", mtime: 1 }),
     read_base64: () => "",

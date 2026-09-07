@@ -9,9 +9,10 @@ import type { EditorView } from "@codemirror/view";
  * widths padded, alignment colons (:--- :--: ---:) preserved.
  */
 
-type Align = "left" | "center" | "right" | null;
+export type Align = "left" | "center" | "right" | null;
 
-const isTableLine = (text: string) => text.trimStart().startsWith("|");
+/** A line that belongs to a pipe table (shared with livepreview.ts). */
+export const isTableLine = (text: string) => text.trimStart().startsWith("|");
 
 /** Split a table line into trimmed cells, honoring escaped \| pipes. */
 function splitCells(line: string): string[] {
@@ -35,10 +36,12 @@ function splitCells(line: string): string[] {
 }
 
 const isSepCell = (c: string) => /^:?-+:?$/.test(c);
-const isSepRow = (cells: string[]) =>
+/** The `|---|:--:|` row under a table header. */
+export const isSepRow = (cells: string[]) =>
   cells.some(isSepCell) && cells.every((c) => c === "" || isSepCell(c));
 
-function alignOf(cell: string | undefined): Align {
+/** Column alignment from a separator cell: `:--`, `--:`, `:-:`. */
+export function alignOf(cell: string | undefined): Align {
   if (!cell || !isSepCell(cell)) return null;
   const left = cell.startsWith(":");
   const right = cell.endsWith(":");

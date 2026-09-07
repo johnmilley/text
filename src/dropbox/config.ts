@@ -58,7 +58,6 @@ export const defaultConfig = (): Config => ({
   zen_typewriter: true,
   typewriter_anchor: "top",
   spellcheck: false,
-  // the phone build reads much better with the markup out of the way
   live_preview: true,
   status_bar: false,
   preview_replaces_editor: false,

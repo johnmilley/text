@@ -52,11 +52,12 @@ combos); `WEBKIT_DISABLE_DMABUF_RENDERER=0` overrides.
   preview beside the editor.
 - **Live preview** — `Ctrl+Shift+L` hides the markdown syntax on every line
   but the one you're editing: headings lose their `#`, `**bold**` is just
-  bold, tasks become real checkboxes, images and `dataview`/`mermaid` blocks
-  replace their source, and frontmatter folds to a chip. Move the caret onto
+  bold, tasks become real checkboxes, tables render (click a cell to edit it),
+  images and `dataview`/`mermaid` blocks replace their source, and frontmatter
+  folds to a chip. Move the caret onto
   a line and its source comes straight back. The file on disk never changes —
   it's decoration, not a different format — so turning it off leaves plain
-  markdown source. Off by default on desktop, on in the phone build.
+  markdown source with every marker visible. On by default.
 - **Command palette** — `Ctrl+P` is one picker with four lists: files by
   default, `>` for every command in the app (mods included), `#` to jump to
   a heading in the open note, `@` to find a tag. `Ctrl+Shift+P` opens
@@ -66,8 +67,13 @@ combos); `WEBKIT_DISABLE_DMABUF_RENDERER=0` overrides.
   years. Quick capture (`Ctrl+Shift+J`, or the pencil in the top bar)
   appends a timestamped line to today's note from anywhere.
 - **Search** — `Ctrl+P` fuzzy-switches files (type a new name to create),
-  `Ctrl+Shift+F` greps the folder, `Ctrl+Shift+B` lists backlinks to the
-  open note.
+  `Ctrl+Shift+F` greps the folder — match case, whole word and regex toggles,
+  every match on a line highlighted, and a count of what was found —
+  `Ctrl+Shift+B` lists backlinks to the open note.
+- **File history** — `Ctrl+Shift+H` lists earlier versions of the open note
+  and puts one back as an ordinary, undoable edit. On desktop a version is
+  kept every couple of minutes as you edit, outside the notes folder so it
+  never syncs; on the web the list is Dropbox's own file revisions.
 - **Dataview** — a ` ```dataview ` block renders a live list/table/task
   roll-up of your notes (a subset of the Obsidian plugin):
   [docs/DATAVIEW.md](docs/DATAVIEW.md).
@@ -118,6 +124,7 @@ settings or `[keys]` in config.toml.
 | `Ctrl+S` | save now (autosave runs anyway) |
 | `Ctrl+F` / `Ctrl+Shift+F` | find in file / search the folder |
 | `Ctrl+Shift+B` | backlinks to the open note |
+| `Ctrl+Shift+H` | file history — restore an earlier version |
 | `Ctrl+Shift+M` | rendered preview beside the editor |
 | `Ctrl+Shift+L` | live preview (hide markdown syntax off the cursor line) |
 | `Ctrl+Shift+S` | export the folder (HTML / PDF) |
@@ -143,7 +150,8 @@ settings or `[keys]` in config.toml.
 
 ```
 src-tauri/src/     Rust backend: files.rs (atomic writes, conflicts),
-                   search.rs, watch.rs, windows.rs, themes.rs, config.rs,
+                   search.rs (cached grep), history.rs (version snapshots),
+                   watch.rs, windows.rs, themes.rs, config.rs,
                    render.rs (markdown → HTML)
 src/               frontend (vanilla TS): main.ts (app shell), editor.ts
                    (CodeMirror 6), tables.ts, settings.ts, mdstyle.ts

@@ -374,8 +374,9 @@ const bytesFromB64 = (b64: string): Uint8Array => {
   return bytes;
 };
 
-const smartcaseIndex = (line: string, query: string, ci: boolean): number =>
-  ci ? line.toLowerCase().indexOf(query) : line.indexOf(query);
+/** `"<path>@<unix seconds>"` → Dropbox rev, filled in by listHistory so
+ * readHistory can fetch the right revision. */
+const revsByTs = new Map<string, string>();
 
 export const dropboxBackend: Backend = {
   listTree,
@@ -489,28 +490,71 @@ export const dropboxBackend: Backend = {
     });
   },
 
-  searchText: async (root, query) => {
+  searchText: async (root, query, opts) => {
     if (!query.trim()) return [];
-    // smartcase: case-insensitive unless the query has an uppercase letter
-    const ci = !/\p{Lu}/u.test(query);
-    const needle = ci ? query.toLowerCase() : query;
+    // smartcase: case-insensitive unless the query has an uppercase letter,
+    // or the caller asked for case sensitivity outright
+    const ci = !opts?.case_sensitive && !/\p{Lu}/u.test(query);
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    let body = opts?.regex ? query : escaped;
+    if (opts?.whole_word) body = `\\b(?:${body})\\b`;
+    let re: RegExp;
+    try {
+      re = new RegExp(body, ci ? "gui" : "gu");
+    } catch {
+      // a half-typed regex is normal during an incremental search
+      throw new Error("bad pattern");
+    }
     const hits: Hit[] = [];
     for (const file of await ensureTexts(root)) {
       const lines = file.text.split("\n");
       for (let i = 0; i < lines.length; i++) {
-        const start = smartcaseIndex(lines[i], needle, ci);
-        if (start < 0) continue;
-        hits.push({
-          path: file.path,
-          line: i + 1,
-          text: lines[i].slice(0, 400),
-          start,
-          end: Math.min(start + query.length, 400),
-        });
+        // one row per line carrying every match on it
+        const matches: [number, number][] = [];
+        re.lastIndex = 0;
+        for (const m of lines[i].matchAll(re)) {
+          if (m.index >= 400) break;
+          matches.push([m.index, Math.min(m.index + m[0].length, 400)]);
+          if (m[0].length === 0) break; // an empty match would never advance
+        }
+        if (!matches.length) continue;
+        hits.push({ path: file.path, line: i + 1, text: lines[i].slice(0, 400), matches });
         if (hits.length >= MAX_RESULTS) return hits;
       }
     }
     return hits;
+  },
+
+  /**
+   * Version history from Dropbox's own file revisions — no snapshots of our
+   * own to write, prune, or sync. `snapshotFile` is therefore a no-op that
+   * reports "nothing recorded": every save already becomes a revision.
+   */
+  snapshotFile: async () => false,
+
+  listHistory: async (path) => {
+    try {
+      const res = await dbx.rpc<{ entries: { rev: string; server_modified: string; size: number }[] }>(
+        "files/list_revisions",
+        { path: norm(path), mode: "path", limit: 40 },
+      );
+      // ts doubles as the rev handle: readHistory looks the rev back up, so
+      // the Backend interface stays a plain number for both builds
+      return res.entries.map((e) => {
+        const ts = Math.floor(Date.parse(e.server_modified) / 1000);
+        revsByTs.set(`${path}@${ts}`, e.rev);
+        return { ts, bytes: e.size };
+      });
+    } catch {
+      return []; // a file with no revisions yet, or no permission
+    }
+  },
+
+  readHistory: async (path, ts) => {
+    const rev = revsByTs.get(`${path}@${ts}`);
+    if (!rev) throw new Error("that version is no longer listed");
+    const { resp } = await dbx.download(`rev:${rev}`);
+    return resp.text();
   },
 
   findBacklinks: async (root, target) => {
@@ -527,8 +571,7 @@ export const dropboxBackend: Backend = {
           path: file.path,
           line: i + 1,
           text: lines[i].slice(0, 400),
-          start: m.index,
-          end: Math.min(m.index + m[0].length, 400),
+          matches: [[m.index, Math.min(m.index + m[0].length, 400)]],
         });
         if (hits.length >= MAX_RESULTS) return hits;
       }

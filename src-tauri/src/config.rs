@@ -43,8 +43,9 @@ const HEADER: &str = r#"# pt — config
 #   typewriter_anchor  where that line sits: "top" (upper third) or "center"
 #   spellcheck    underline misspelled words in the editor (browser/OS dictionary)
 #   live_preview  hide markdown syntax except on the line being edited, so the
-#                 note reads like the rendered page while you write it. The
-#                 file on disk is untouched either way; off = plain source
+#                 note reads like the rendered page while you write it (on by
+#                 default). The file on disk is untouched either way; turn it
+#                 off for plain source with every marker visible
 #   status_bar    show words / characters / line:col along the bottom edge
 #   preview_replaces_editor  on desktop, markdown preview replaces the editor
 #                 pane instead of showing beside it (phones always replace)
@@ -55,6 +56,12 @@ const HEADER: &str = r#"# pt — config
 #   toolbar_preview   show the edit/preview toggle icon in the top bar
 #   toolbar_order     display order of the capture/calendar/corkboard/
 #                 scratchpad icons
+#
+# Version history (Ctrl+Shift+H) is kept beside this file, under
+# history/<note>-<hash>/, one snapshot every couple of minutes while a note
+# is being edited. It is outside your notes folder on purpose, so it never
+# syncs and never shows up in the file tree. Delete the directory to forget
+# everything; nothing else depends on it.
 #
 # [keys] rebinds the app shortcuts. Format: modifiers + key, e.g.
 # "ctrl+shift+f", "ctrl+,", "alt+d". Modifiers: ctrl, shift, alt.
@@ -193,8 +200,7 @@ impl Default for Config {
             zen_typewriter: true,
             typewriter_anchor: "top".into(),
             spellcheck: false,
-            // opt-in: the app's long-standing behaviour is visible markup
-            live_preview: false,
+            live_preview: true,
             status_bar: false,
             preview_replaces_editor: false,
             toolbar_capture: true,

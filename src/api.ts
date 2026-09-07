@@ -22,8 +22,25 @@ export interface Hit {
   path: string;
   line: number;
   text: string;
-  start: number;
-  end: number;
+  /** every match on the line, as [start, end] offsets into `text` */
+  matches: [number, number][];
+}
+
+/** How a folder search reads its query. All-false is the historical
+ * behaviour: literal text, smart case, matching anywhere in a word. */
+export interface SearchOpts {
+  regex: boolean;
+  /** force case sensitivity; otherwise smart case (uppercase in the query
+   * makes it case-sensitive) */
+  case_sensitive: boolean;
+  whole_word: boolean;
+}
+
+/** One stored version of a file (see the history commands on Backend). */
+export interface Version {
+  /** unix seconds */
+  ts: number;
+  bytes: number;
 }
 
 export interface Theme {
@@ -135,7 +152,19 @@ export interface Backend {
   readBase64(path: string): Promise<string>;
   writeTextFile(path: string, content: string): Promise<void>;
   copyFile(src: string, dest: string): Promise<void>;
-  searchText(root: string, query: string): Promise<Hit[]>;
+  searchText(root: string, query: string, opts?: SearchOpts): Promise<Hit[]>;
+  /**
+   * Local version history, so an accidental delete that autosaved is not the
+   * end of the note. Desktop keeps its own throttled snapshots outside the
+   * notes folder; the web build reads Dropbox's own file revisions, which are
+   * strictly better (server-side, and they predate the app).
+   *
+   * `snapshotFile` is advisory — it may decline (too soon, unchanged) and
+   * must never fail a save.
+   */
+  snapshotFile(path: string, content: string): Promise<boolean>;
+  listHistory(path: string): Promise<Version[]>;
+  readHistory(path: string, ts: number): Promise<string>;
   findBacklinks(root: string, target: string): Promise<Hit[]>;
   openWindow(root: string | null, file: string | null): Promise<void>;
   windowInitParams(): Promise<WindowInit | null>;
@@ -180,7 +209,10 @@ const tauriBackend: Backend = {
   readBase64: (path) => invoke<string>("read_base64", { path }),
   writeTextFile: (path, content) => invoke<void>("write_text_file", { path, content }),
   copyFile: (src, dest) => invoke<void>("copy_file", { src, dest }),
-  searchText: (root, query) => invoke<Hit[]>("search_text", { root, query }),
+  searchText: (root, query, opts) => invoke<Hit[]>("search_text", { root, query, opts }),
+  snapshotFile: (path, content) => invoke<boolean>("snapshot_file", { path, content }),
+  listHistory: (path) => invoke<Version[]>("list_history", { path }),
+  readHistory: (path, ts) => invoke<string>("read_history", { path, ts }),
   findBacklinks: (root, target) => invoke<Hit[]>("find_backlinks", { root, target }),
   openWindow: (root, file) => invoke<void>("open_window", { root, file }),
   windowInitParams: () => invoke<WindowInit | null>("window_init_params"),
@@ -238,9 +270,14 @@ export const readBase64 = (path: string) => backend.readBase64(path);
 export const writeTextFile = (path: string, content: string) =>
   backend.writeTextFile(path, content);
 export const copyFile = (src: string, dest: string) => backend.copyFile(src, dest);
-export const searchText = (root: string, query: string) => backend.searchText(root, query);
+export const searchText = (root: string, query: string, opts?: SearchOpts) =>
+  backend.searchText(root, query, opts);
 export const findBacklinks = (root: string, target: string) =>
   backend.findBacklinks(root, target);
+export const snapshotFile = (path: string, content: string) =>
+  backend.snapshotFile(path, content);
+export const listHistory = (path: string) => backend.listHistory(path);
+export const readHistory = (path: string, ts: number) => backend.readHistory(path, ts);
 
 export const openWindow = (root: string | null, file: string | null) =>
   backend.openWindow(root, file);

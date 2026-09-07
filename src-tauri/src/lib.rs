@@ -1,6 +1,7 @@
 mod clipboard;
 mod config;
 mod files;
+mod history;
 mod latex;
 mod query;
 mod render;
@@ -85,6 +86,9 @@ pub fn run() {
             clipboard::read_clipboard_image,
             search::search_text,
             search::find_backlinks,
+            history::snapshot_file,
+            history::list_history,
+            history::read_history,
             query::collect_notes,
             render::render_preview,
             themes::list_themes,

@@ -67,6 +67,9 @@ pub async fn watch_root(
             }
             paths.sort();
             paths.dedup();
+            // the search cache holds file text keyed by mtime+len; a rewrite
+            // inside the same second at the same length would look unchanged
+            crate::search::invalidate_cache(&paths);
             let _ = app.emit("fs:changed", paths);
         }
     });
