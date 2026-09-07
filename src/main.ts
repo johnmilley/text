@@ -20,7 +20,15 @@ import "./fonts";
 import { Editor, type NoteRef } from "./editor";
 import { initMdKeyBar } from "./mdkeybar";
 import { applyTheme, setEditorFont, setEditorMargin, setFontSize, setLineWidth, setUiFontSize } from "./theme";
-import { closeModal, confirmBox, infoBox, pick, type PickerItem, promptText } from "./modal";
+import {
+  closeModal,
+  confirmBox,
+  infoBox,
+  pick,
+  type PickerItem,
+  promptText,
+  refreshPicker,
+} from "./modal";
 import { openSettings } from "./settings";
 import { bumpPdfZoom, closePdfDoc, initPdfView, isPdfFile, openPdfDoc, resetPdfZoom } from "./pdf";
 import {
@@ -70,7 +78,7 @@ const isMain = isMainWindow();
 
 const isMac = /Mac/i.test(navigator.platform);
 
-const APP_VERSION = "0.2.8";
+const APP_VERSION = __APP_VERSION__;
 
 /** Editor state stashed when a text-file tab is backgrounded. */
 interface TabSnap {
@@ -291,6 +299,69 @@ function updateStatus() {
     ev.title = previewOn() ? "Back to editing (Ctrl+Shift+M)" : "Preview (Ctrl+Shift+M)";
     ev.classList.toggle("active", previewOn());
   }
+  updateStatusBar();
+}
+
+// ---------------------------------------------------------------- status bar
+
+/**
+ * The counters along the bottom edge (off by default; settings → status bar).
+ *
+ * Cursor position and the selection size come from `cursorStatus()` and are
+ * cheap enough to refresh on every keystroke. The document word/character
+ * count walks the whole buffer, so it is throttled — a long note would
+ * otherwise pay for a full scan on every character typed.
+ */
+let docCountTimer: number | undefined;
+let docCounts = { words: 0, chars: 0 };
+
+function applyStatusBar() {
+  $("#statusbar").hidden = !config.status_bar;
+  if (config.status_bar) updateStatusBar();
+}
+
+function toggleStatusBar() {
+  config.status_bar = !config.status_bar;
+  applyStatusBar();
+  void api.saveConfig(config);
+}
+
+function updateStatusBar() {
+  if (!config.status_bar) return;
+  const bar = $("#statusbar");
+  const ed = activeEditor();
+  const path = focusedPane === 2 && pane2Path ? pane2Path : currentPath;
+  // nothing text-shaped in view (image/pdf/welcome) — keep the bar quiet
+  if (!path || viewingImage || viewingAudio || viewingPdf) {
+    $("#sb-counts").textContent = "";
+    $("#sb-cursor").textContent = "";
+    $<HTMLButtonElement>("#sb-mode").hidden = true;
+    return;
+  }
+  const cur = ed.cursorStatus();
+  $("#sb-cursor").textContent = `ln ${cur.line}, col ${cur.col}`;
+
+  // a selection is what you want counted while it exists
+  if (cur.selChars) {
+    $("#sb-counts").textContent =
+      `${cur.selWords} word${cur.selWords === 1 ? "" : "s"} selected · ${cur.selChars} chars`;
+  } else {
+    $("#sb-counts").textContent =
+      `${docCounts.words} word${docCounts.words === 1 ? "" : "s"} · ${docCounts.chars} chars`;
+    window.clearTimeout(docCountTimer);
+    docCountTimer = window.setTimeout(() => {
+      docCounts = ed.docStatus();
+      if (!ed.view.state.selection.main.empty) return;
+      $("#sb-counts").textContent =
+        `${docCounts.words} word${docCounts.words === 1 ? "" : "s"} · ${docCounts.chars} chars`;
+    }, 200);
+  }
+
+  const mode = $<HTMLButtonElement>("#sb-mode");
+  mode.hidden = !isMarkdownishPath(path);
+  mode.textContent = config.live_preview ? "live" : "source";
+  mode.classList.toggle("active", config.live_preview);
+  bar.classList.toggle("dirty", focusedPane === 2 ? pane2Dirty : dirty);
 }
 
 // ---------------------------------------------------------------- file tree
@@ -798,9 +869,11 @@ function buildTextApi(): TextAPI {
     currentRoot: () => root,
     config: () => config,
     registerCommand: (cmd) => {
-      // a combo makes it keybindable + listed in shortcuts (rebindable under
-      // its id in config.toml [keys]); without one it's menu/button-only
-      if (cmd.combo) ACTIONS.push({ id: cmd.id, combo: cmd.combo, what: cmd.title, run: cmd.run });
+      // every command lands in ACTIONS, so it shows up in the command palette
+      // and the shortcut list and can be given a key in config.toml [keys].
+      // A combo here is only the *default* binding; without one the command
+      // is simply unbound until the user assigns something.
+      ACTIONS.push({ id: cmd.id, combo: cmd.combo ?? "", what: cmd.title, run: cmd.run });
     },
     addContextMenuItem: (item) => modContextItems.push(item),
     registerBlockRenderer: (spec) =>
@@ -2453,13 +2526,78 @@ async function deleteEntry(entry: api.Entry) {
 
 // ---------------------------------------------------------------- switcher / wikilinks
 
-async function quickSwitch() {
+/** The editor the quick switcher's `#`/heading jumps should act on. */
+const activeEditor = () => (focusedPane === 2 && editor2 ? editor2 : editor);
+
+/** Headings in the focused pane's note, in document order. Fenced code is
+ * skipped so a `# comment` inside a shell block never lands in the outline. */
+function currentHeadings(): { label: string; line: number }[] {
+  const path = focusedPane === 2 && pane2Path ? pane2Path : currentPath;
+  if (!path || !isMarkdownishPath(path)) return [];
+  const out: { label: string; line: number }[] = [];
+  let fence: string | null = null;
+  const lines = activeEditor().text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i];
+    const f = /^\s{0,3}(`{3,}|~{3,})/.exec(text);
+    if (f) {
+      if (!fence) fence = f[1][0];
+      else if (text.trimStart().startsWith(fence)) fence = null;
+      continue;
+    }
+    if (fence) continue;
+    const m = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(text);
+    if (!m) continue;
+    // indent by level so the outline reads as a tree in a flat list
+    out.push({ label: "  ".repeat(m[1].length - 1) + m[2], line: i + 1 });
+  }
+  return out;
+}
+
+/** Tag → note count across the folder, from the same `collectNotes` index the
+ * dataview mod queries. Cached; refreshed in the background when the picker
+ * asks for it, because `PickerMode.items()` cannot await. */
+let tagIndex: { tag: string; count: number }[] = [];
+let tagIndexFor = ""; // the tree fingerprint the cache was built from
+let tagIndexLoading = false;
+
+function refreshTagIndex() {
+  if (!root || tagIndexLoading || tagIndexFor === treeFingerprint) return;
+  tagIndexLoading = true;
+  const want = treeFingerprint;
+  void api
+    .collectNotes(root)
+    .then((notes) => {
+      const counts = new Map<string, number>();
+      for (const note of notes) {
+        for (const tag of new Set(note.tags)) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      }
+      tagIndex = [...counts]
+        .map(([tag, count]) => ({ tag, count }))
+        .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+      tagIndexFor = want;
+      refreshPicker(); // the `@` list may be on screen with stale rows
+    })
+    .catch(() => {})
+    .finally(() => {
+      tagIndexLoading = false;
+    });
+}
+
+/**
+ * One picker, four lists. Plain text matches file names; `>` runs any command
+ * in ACTIONS (including the ones mods registered without a shortcut), `#`
+ * jumps to a heading in the open note, `@` searches the folder for a tag.
+ * `initial` seeds the input — Ctrl+Shift+P is just this opened at `">"`.
+ */
+async function quickSwitch(initial = "") {
   if (!root) return;
   const byPath = new Map(allFiles.map((f) => [f.path, f] as const));
   // empty query shows recent files; typing matches the whole folder
   const recents = recentFiles()
     .filter((p) => p !== currentPath && byPath.has(p))
     .map((p) => ({ label: byPath.get(p)!.rel, value: p }));
+  refreshTagIndex();
   const chosen = await pick(
     allFiles.map((f) => ({ label: f.rel, value: f.path })),
     {
@@ -2467,9 +2605,53 @@ async function quickSwitch() {
       emptyItems: recents,
       freeTextHint: "new note",
       onFreeText: (text) => void createAndOpen(text),
+      initialQuery: initial,
+      modes: [
+        {
+          prefix: ">",
+          name: "commands",
+          placeholder: "run a command…",
+          items: () =>
+            ACTIONS.map((a) => ({
+              label: a.what,
+              detail: prettyCombo(effectiveCombo(a)),
+              value: a.id,
+            })),
+        },
+        {
+          prefix: "#",
+          name: "headings",
+          placeholder: "jump to a heading…",
+          items: () =>
+            currentHeadings().map((h) => ({ label: h.label, value: String(h.line) })),
+        },
+        {
+          prefix: "@",
+          name: "tags",
+          placeholder: tagIndexFor ? "find a tag…" : "indexing tags…",
+          items: () =>
+            tagIndex.map((t) => ({
+              label: "#" + t.tag,
+              detail: `${t.count} note${t.count === 1 ? "" : "s"}`,
+              value: t.tag,
+            })),
+        },
+      ],
     },
   );
-  if (chosen) void openFile(chosen.value);
+  if (!chosen) return;
+  if (chosen.mode === ">") {
+    ACTIONS.find((a) => a.id === chosen.value)?.run();
+  } else if (chosen.mode === "#") {
+    activeEditor().jumpToLine(Number(chosen.value));
+  } else if (chosen.mode === "@") {
+    showPane("search");
+    const box = $<HTMLInputElement>("#search-input");
+    box.value = "#" + chosen.value;
+    void runSearch();
+  } else {
+    void openFile(chosen.value);
+  }
 }
 
 async function createAndOpen(name: string) {
@@ -2633,6 +2815,11 @@ function showPane(tab: "files" | "search" | "links") {
   if (tab === "links") void refreshBacklinks();
 }
 
+/** Both backends stop collecting at this many hits (search.rs / dropbox
+ * backend.ts share the number) — a full list says so rather than quietly
+ * looking complete. */
+const SEARCH_CAP = 500;
+
 function renderHits(container: HTMLElement, hits: api.Hit[], empty: string) {
   if (!hits.length) {
     const div = document.createElement("div");
@@ -2641,7 +2828,15 @@ function renderHits(container: HTMLElement, hits: api.Hit[], empty: string) {
     container.replaceChildren(div);
     return;
   }
+  const files = new Set(hits.map((h) => h.path)).size;
+  const tally = document.createElement("div");
+  tally.className = "hit-tally";
+  tally.textContent =
+    hits.length >= SEARCH_CAP
+      ? `first ${hits.length} lines in ${files} file${files === 1 ? "" : "s"} — narrow the search`
+      : `${hits.length} line${hits.length === 1 ? "" : "s"} in ${files} file${files === 1 ? "" : "s"}`;
   container.replaceChildren(
+    tally,
     ...hits.map((hit) => {
       const row = document.createElement("div");
       row.className = "hit-row";
@@ -3021,9 +3216,21 @@ function applyEditorView() {
   editor.setLineNumbers(config.line_numbers);
   editor.setHighlightLine(config.highlight_line);
   editor.setSpellcheck(config.spellcheck);
+  editor.setLivePreview(config.live_preview);
   editor2?.setLineNumbers(config.line_numbers);
   editor2?.setHighlightLine(config.highlight_line);
   editor2?.setSpellcheck(config.spellcheck);
+  editor2?.setLivePreview(config.live_preview);
+  applyStatusBar();
+}
+
+/** Live preview on/off for both panes, persisted like any other setting.
+ * Bound to Ctrl+Shift+L because it's a per-note reflex, not a preference you
+ * set once — the same key toggles it back. */
+function toggleLivePreview() {
+  config.live_preview = !config.live_preview;
+  applyEditorView();
+  void api.saveConfig(config);
 }
 
 /** On desktop, let preview replace the editor pane instead of splitting beside
@@ -3259,6 +3466,8 @@ async function switchFolder() {
  * effective combo comes from config.toml's [keys] (documented there). */
 const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = [
   { id: "quick_switch", combo: "ctrl+p", what: "quick switch / new note", run: () => void quickSwitch() },
+  { id: "command_palette", combo: "ctrl+shift+p", what: "command palette (all commands)", run: () => void quickSwitch(">") },
+  { id: "outline", combo: "alt+g", what: "outline — jump to a heading", run: () => void quickSwitch("#") },
   { id: "new_note", combo: "ctrl+n", what: "new note", run: () => void newNote() },
   { id: "quick_capture", combo: "ctrl+shift+j", what: "quick capture into today's daily note", run: () => void quickCapture() },
   { id: "scratchpad", combo: "alt+s", what: "scratchpad (quick text, file it properly later)", run: openScratchpad },
@@ -3280,6 +3489,8 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "new_window", combo: "ctrl+alt+n", what: "new window", run: newWindow },
   { id: "split", combo: "ctrl+shift+\\", what: "split editor (vertical → horizontal → off)", run: () => void cycleSplit() },
   { id: "preview", combo: "ctrl+shift+m", what: "markdown preview (rendered, beside the editor)", run: togglePreview },
+  { id: "live_preview", combo: "ctrl+shift+l", what: "live preview (hide markdown syntax off the cursor line)", run: toggleLivePreview },
+  { id: "status_bar", combo: "", what: "status bar (words / characters / line:col)", run: toggleStatusBar },
   { id: "focus_tree", combo: "ctrl+e", what: "focus file tree (arrows move, enter opens, esc returns)", run: focusTree },
   { id: "move_file", combo: "ctrl+m", what: "move the selected file/folder to another folder", run: moveSelected },
   { id: "zen", combo: "alt+z", what: "zen mode (fullscreen, typewriter) — also F11", run: () => void toggleZen() },
@@ -3302,17 +3513,23 @@ function normalizeCombo(binding: string): string | null {
   return `${mods.ctrl ? "ctrl+" : ""}${mods.shift ? "shift+" : ""}${mods.alt ? "alt+" : ""}${key}`;
 }
 
+/** The combo an action actually answers to: the [keys] override, else its
+ * default, else "" for a command that is deliberately unbound. */
 const effectiveCombo = (a: (typeof ACTIONS)[number]) =>
-  normalizeCombo(config?.keys?.[a.id] ?? a.combo) ?? normalizeCombo(a.combo)!;
+  normalizeCombo(config?.keys?.[a.id] ?? a.combo) ?? normalizeCombo(a.combo) ?? "";
 
 let boundKeys = new Map<string, () => void>();
 
 function rebindKeys() {
-  boundKeys = new Map(ACTIONS.map((a) => [effectiveCombo(a), a.run]));
+  boundKeys = new Map(
+    ACTIONS.filter((a) => effectiveCombo(a)).map((a) => [effectiveCombo(a), a.run]),
+  );
 }
 
 const prettyCombo = (combo: string) =>
-  combo
+  !combo
+    ? ""
+    : combo
     .split("+")
     .map((p) => {
       // "ctrl" in a combo means Cmd on macOS (matching is ctrlKey || metaKey)
@@ -3364,7 +3581,10 @@ const SHORTCUTS: [string, [string, string][]][] = [
 
 function showShortcuts() {
   // the app section reflects the live [keys] config; the rest is fixed
-  const app: [string, string][] = ACTIONS.map((a) => [prettyCombo(effectiveCombo(a)), a.what]);
+  const app: [string, string][] = ACTIONS.map((a) => [
+    prettyCombo(effectiveCombo(a)) || "—",
+    a.what,
+  ]);
   infoBox((box) => {
     const caption = document.createElement("div");
     caption.className = "modal-caption";
@@ -3581,6 +3801,7 @@ async function init() {
   $("#tb-calendar").addEventListener("click", () => ACTIONS.find((a) => a.id === "calendar")?.run());
   $("#tb-corkboard").addEventListener("click", () => ACTIONS.find((a) => a.id === "corkboard")?.run());
   $("#tb-scratchpad").addEventListener("click", () => openScratchpad());
+  $("#sb-mode").addEventListener("click", toggleLivePreview);
   $("#tb-settings").addEventListener("click", () => openSettingsPanel());
   $("#tb-settings").addEventListener("contextmenu", (e) => {
     e.preventDefault();

@@ -36,7 +36,50 @@ just a line here.
 
 more text.
 `;
+  // frontmatter fold, `---` rule, and a mod-rendered fenced block
+  const BLOCKS_MD = `---
+title: Block sampler
+tags: [demo, live]
+slides: false
+---
+
+Text above the rule.
+
+---
+
+Text below the rule, then a rendered block:
+
+\`\`\`dataview
+LIST
+\`\`\`
+
+Done.
+`;
+  // exercises every construct live preview hides (livepreview.ts)
+  const LIVE_MD = `# Live preview sampler
+
+Some **bold text** and *italic text* and ~~struck out~~ and \`inline code\`
+plus ==a highlight== in one paragraph.
+
+A [[wikilink]] and a labelled [[other|by label]] and a
+[markdown link](https://example.com) to finish.
+
+> a block quote line
+> and its second line
+
+- [ ] an open task
+- [x] a finished task
+- a plain bullet
+
+## Second heading ##
+
+\`\`\`js
+const notHidden = "** stays visible in code **";
+\`\`\`
+`;
   const FILES = {
+    "/vault/live.md": LIVE_MD,
+    "/vault/blocks.md": BLOCKS_MD,
     "/vault/notes.md": NOTES_MD,
     "/vault/other.md": OTHER_MD,
     "/vault/stuff/inside.md": "# Inside\n\nhello from a subfolder.\n",
@@ -65,6 +108,8 @@ more text.
     zen_typewriter: true,
     typewriter_anchor: "top",
     spellcheck: false,
+    live_preview: true,
+    status_bar: true,
     preview_replaces_editor: false,
     toolbar_capture: true,
     toolbar_calendar: true,
@@ -79,6 +124,8 @@ more text.
     { name: "stuff", path: "/vault/stuff", is_dir: true, mtime: 1, children: [
       { name: "inside.md", path: "/vault/stuff/inside.md", is_dir: false, mtime: 1, children: null },
     ]},
+    { name: "blocks.md", path: "/vault/blocks.md", is_dir: false, mtime: 4, children: null },
+    { name: "live.md", path: "/vault/live.md", is_dir: false, mtime: 3, children: null },
     { name: "notes.md", path: "/vault/notes.md", is_dir: false, mtime: 2, children: null },
     { name: "other.md", path: "/vault/other.md", is_dir: false, mtime: 1, children: null },
     { name: "paper.tex", path: "/vault/paper.tex", is_dir: false, mtime: 1, children: null },
@@ -114,7 +161,19 @@ more text.
     create_file: ({ path }) => { FILES[path] = ""; },
     create_dir: () => null,
     collect_notes: () => [],
-    search_text: () => [],
+    search_text: ({ query }) => {
+      const hits = [];
+      const ci = !/[A-Z]/.test(query);
+      for (const [path, text] of Object.entries(FILES)) {
+        text.split("\n").forEach((line, i) => {
+          const hay = ci ? line.toLowerCase() : line;
+          const start = hay.indexOf(ci ? query.toLowerCase() : query);
+          if (start < 0) return;
+          hits.push({ path, line: i + 1, text: line.slice(0, 400), start, end: start + query.length });
+        });
+      }
+      return hits;
+    },
     find_backlinks: () => [],
     render_preview: ({ text }) => `<p>${(text || "").slice(0, 40)}</p>`,
     read_image: () => ({ base64: "", mtime: 1 }),

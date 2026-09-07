@@ -63,6 +63,10 @@ export interface Config {
   typewriter_anchor: string;
   /** underline misspelled words in the editor (browser/OS dictionary) */
   spellcheck: boolean;
+  /** hide markdown syntax except on the line being edited */
+  live_preview: boolean;
+  /** show words / characters / line:col along the bottom edge */
+  status_bar: boolean;
   /** on desktop, preview replaces the editor pane instead of a side-by-side split */
   preview_replaces_editor: boolean;
   toolbar_capture: boolean;

@@ -335,9 +335,31 @@ button:hover {
   border-color: var(--accent);
 }
 
+/* Keyboard focus has to be visible everywhere in the chrome, not just in the
+   three inputs that happened to style it. :focus-visible only fires for
+   keyboard/AT navigation, so this never shows on a mouse click. The editor
+   opts out — CodeMirror draws its own cursor and manages its own focus. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.cm-editor:focus-visible,
+.cm-content:focus-visible {
+  outline: none;
+}
+
 .pane-caption {
   padding: 6px 10px 2px;
   color: var(--fg-muted);
+}
+
+/* "N lines in M files" above the search / backlink results */
+.hit-tally {
+  padding: 4px 10px;
+  color: var(--fg-muted);
+  font-size: 0.85em;
+  border-bottom: 1px solid var(--border);
 }
 
 .hit-list {
@@ -743,6 +765,48 @@ body.preview-replaces-editor #preview {
 #status button {
   border: 1px solid var(--border);
   margin-left: 6px;
+}
+
+/* counters along the bottom edge (settings → status bar) */
+#statusbar {
+  position: relative;
+  z-index: 2; /* above the image/table/pdf overlays, like #status */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 14px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+#statusbar[hidden] {
+  display: none;
+}
+#sb-spacer {
+  flex: 1;
+}
+/* a dot on the left edge while the focused pane has unsaved edits */
+#statusbar.dirty #sb-counts::before {
+  content: "● ";
+  color: var(--accent);
+}
+#sb-mode {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 8px;
+  color: var(--fg-muted);
+  background: transparent;
+  font-size: inherit;
+}
+#sb-mode:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+#sb-mode.active {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 #editor-host {
@@ -1183,6 +1247,30 @@ body.tree-dragging * {
   color: var(--fg);
   border-color: var(--accent);
 }
+/* prefix legend under the picker list: "> commands  # headings  @ tags" */
+.modal-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+.modal-mode {
+  cursor: pointer;
+}
+.modal-mode:hover {
+  color: var(--fg);
+}
+.modal-mode kbd {
+  font-family: var(--font-editor);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-right: 3px;
+}
+
 .modal-buttons {
   display: flex;
   justify-content: flex-end;
@@ -1496,6 +1584,62 @@ body.tree-dragging * {
   color: var(--fg-muted);
 }
 
+/* live preview: `---` drawn as a rule, frontmatter folded to a chip */
+.cm-hr {
+  display: inline-block;
+  width: 100%;
+  height: 0;
+  vertical-align: middle;
+  border-top: 1px solid var(--border);
+}
+.cm-frontmatter-chip {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--bg-panel) 60%, transparent);
+  font-size: 0.82em;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-frontmatter-chip:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+/* live preview: `- [ ]` becomes a real checkbox (livepreview.ts) */
+.cm-task-box {
+  appearance: none;
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0 0.35em 0 0;
+  border: 1.5px solid var(--fg-muted);
+  border-radius: 3px;
+  vertical-align: -0.1em;
+  cursor: pointer;
+}
+.cm-task-box:hover {
+  border-color: var(--accent);
+}
+.cm-task-box:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.cm-task-box:checked::after {
+  content: "";
+  display: block;
+  width: 0.22em;
+  height: 0.45em;
+  margin: 0.05em 0 0 0.28em;
+  border: solid var(--bg);
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(43deg);
+}
+
 .cm-hashtag {
   color: var(--tag);
   background: color-mix(in srgb, var(--tag) 12%, transparent);
@@ -1524,6 +1668,35 @@ mark {
 }
 .cm-line.cm-codeblock .cm-inlinecode {
   background: none; /* the code block already tints the whole line */
+}
+
+/* mod-rendered fenced blocks (dataview, mermaid, latex). In live preview the
+   widget stands in for the source, so it carries a button back to the text. */
+.block-widget {
+  position: relative;
+}
+.block-widget .block-edit {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  font-family: var(--font-editor);
+  font-size: 0.72em;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+.block-widget:hover .block-edit,
+.block-widget .block-edit:focus-visible {
+  opacity: 1;
+}
+.block-widget .block-edit:hover {
+  color: var(--fg);
+  border-color: var(--accent);
 }
 
 /* ------------------------------------------------------ dataview blocks */

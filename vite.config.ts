@@ -1,4 +1,5 @@
 import { defineConfig, type Plugin } from "vite";
+import pkg from "./package.json" with { type: "json" };
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -46,6 +47,10 @@ export default defineConfig(async () => ({
   // @ts-expect-error process is a nodejs global
   base: process.env.TAURI_ENV_PLATFORM ? "/" : "./",
   plugins: [webCsp()],
+
+  // the app reports its own version in the settings/help panes — take it from
+  // package.json so there is only ever one number to bump
+  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

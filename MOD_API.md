@@ -113,7 +113,7 @@ Summary:
 | `addContextMenuItem({ label, scope, when?, run })` | Adds a tree right-click item. `scope` is any of `"file"`, `"folder"`, `"root"` (the tree background). Optional `when(target)` narrows further (e.g. by extension) — omit to show whenever `scope` matches. `run` receives `{ scope, path }`. |
 | `addToolbarButton({ id, label, title?, run })` | Adds a button to the sidebar footer. |
 | `addHelpItem({ label, button?, hint?, run })` | Adds a row to the help tab of the settings panel (e.g. the lessons generator). |
-| `registerBlockRenderer({ lang, render })` | Renders a fenced-code block of `lang` as a live widget below the fence. See [Block renderers](#block-renderers). |
+| `registerBlockRenderer({ lang, render })` | Renders a fenced-code block of `lang` as a live widget (below the fence, or replacing it in live preview). See [Block renderers](#block-renderers). |
 | `onStartup(fn)` | Runs `fn` once the app has finished starting up (root opened). |
 
 ### Host services
@@ -160,10 +160,12 @@ The `ssg` mod resolves these in the DOM — see
 ### Block renderers
 
 `registerBlockRenderer({ lang, render })` makes a fenced-code block of language
-`lang` render a **live widget below the fence** — the note's source text is
-never rewritten, so it survives sync and export. The core CodeMirror plumbing
+`lang` render as a **live widget** — the note's source text is never rewritten,
+so it survives sync and export. In source mode the widget sits below the fence;
+with live preview on it stands *in place of* the block, and a small button in
+its corner puts the caret back in the source. The core CodeMirror plumbing
 lives in [`src/blockrender.ts`](src/blockrender.ts); your `render(ctx)` only
-fills an element:
+fills an element, and behaves identically either way:
 
 ```ts
 app.registerBlockRenderer({
@@ -181,6 +183,10 @@ app.registerBlockRenderer({
   },
 });
 ```
+
+`ctx.el` is yours to own — `replaceChildren` on it freely; it is a container the
+host creates for you inside its own wrapper, so nothing the host adds (the live
+preview edit button) can be wiped by a re-render.
 
 `ctx.onInvalidate` fires (debounced) whenever the folder changes, so a renderer
 can keep itself current. Return a cleanup function to release subscriptions.

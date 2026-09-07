@@ -16,7 +16,7 @@
 
   <body>
     <header id="titlebar" data-tauri-drag-region>
-      <button id="btn-sidebar" title="Toggle sidebar (Ctrl+\)" tabindex="-1">◧</button>
+      <button id="btn-sidebar" title="Toggle sidebar (Ctrl+\)" aria-label="Toggle sidebar">◧</button>
       <!-- history nav: shown when a note is open (see updateStatus) -->
       <span id="titlebar-nav">
         <button id="tb-back" title="Back" aria-label="Back" hidden><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8l4.5 4.5"/></svg></button>
@@ -33,9 +33,9 @@
         <button id="tb-settings" title="Settings (Ctrl+,)" aria-label="Settings"><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2 4.5h7M2 8h3M2 11.5h8"/><circle cx="11.5" cy="4.5" r="1.7"/><circle cx="7.5" cy="8" r="1.7"/><circle cx="12.5" cy="11.5" r="1.7"/></svg></button>
       </span>
       <span id="titlebar-buttons">
-        <button id="tb-min" title="Minimize" tabindex="-1">&#x2013;</button>
-        <button id="tb-max" title="Maximize" tabindex="-1">&#x25A1;</button>
-        <button id="tb-close" title="Close" tabindex="-1">&#x2715;</button>
+        <button id="tb-min" title="Minimize" aria-label="Minimize" tabindex="-1">&#x2013;</button>
+        <button id="tb-max" title="Maximize" aria-label="Maximize" tabindex="-1">&#x25A1;</button>
+        <button id="tb-close" title="Close" aria-label="Close window" tabindex="-1">&#x2715;</button>
       </span>
     </header>
 
@@ -51,9 +51,9 @@
           <div id="folder-row">
             <span id="folder-name" title="Switch folder (Ctrl+Shift+O)">no folder</span>
             <span class="row-actions">
-              <button id="btn-new-note" title="New note (Ctrl+N)">+</button>
-              <button id="btn-new-folder" title="New folder"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3h4.2l1.6 2h7.2v8H1.5z"/><path d="M8 8.2v3.6M6.2 10h3.6" stroke-linecap="round"/></svg></button>
-              <button id="btn-collapse" title="Collapse all folders">⊟</button>
+              <button id="btn-new-note" title="New note (Ctrl+N)" aria-label="New note">+</button>
+              <button id="btn-new-folder" title="New folder" aria-label="New folder"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M1.5 3h4.2l1.6 2h7.2v8H1.5z"/><path d="M8 8.2v3.6M6.2 10h3.6" stroke-linecap="round"/></svg></button>
+              <button id="btn-collapse" title="Collapse all folders" aria-label="Collapse all folders">⊟</button>
             </span>
           </div>
           <div id="tree" tabindex="-1"></div>
@@ -76,7 +76,7 @@
       <main id="main">
         <div id="tabbar">
           <div id="tabs"></div>
-          <button id="tab-new" title="New tab (Ctrl+T)">+</button>
+          <button id="tab-new" title="New tab (Ctrl+T)" aria-label="New tab">+</button>
         </div>
         <div id="content">
         <div id="pane1">
@@ -84,12 +84,12 @@
         <button id="btn-table" hidden>view as table</button>
         <div id="image-view" hidden>
           <div id="image-tools">
-            <button id="img-rot-l" title="Rotate left 90°">⟲</button>
-            <button id="img-rot-r" title="Rotate right 90°">⟳</button>
+            <button id="img-rot-l" title="Rotate left 90°" aria-label="Rotate left">⟲</button>
+            <button id="img-rot-r" title="Rotate right 90°" aria-label="Rotate right">⟳</button>
             <span class="tools-sep"></span>
-            <button id="img-shrink" title="Scale down">−</button>
+            <button id="img-shrink" title="Scale down" aria-label="Scale down">−</button>
             <span id="img-scale" title="Scale (aspect kept)">100%</span>
-            <button id="img-grow" title="Scale up">+</button>
+            <button id="img-grow" title="Scale up" aria-label="Scale up">+</button>
             <span class="tools-sep"></span>
             <button id="img-reset" title="Discard pending edits" hidden>reset</button>
             <button id="img-save-copy" title="Save edited image as a copy" hidden>save copy</button>
@@ -114,9 +114,9 @@
               <span id="pdf-page-total"></span>
             </span>
             <span class="tools-sep"></span>
-            <button id="pdf-shrink" title="Zoom out">−</button>
+            <button id="pdf-shrink" title="Zoom out" aria-label="Zoom out">−</button>
             <span id="pdf-zoom" title="Zoom (relative to page width)">100%</span>
-            <button id="pdf-grow" title="Zoom in">+</button>
+            <button id="pdf-grow" title="Zoom in" aria-label="Zoom in">+</button>
             <button id="pdf-fit" title="Fit page width">fit</button>
           </div>
           <div id="pdf-pages"></div>
@@ -128,7 +128,7 @@
         <div id="pane2" hidden>
           <div id="pane2-bar">
             <span id="pane2-name">empty — open a file here</span>
-            <button id="pane2-close" title="Close split">×</button>
+            <button id="pane2-close" title="Close split" aria-label="Close split">×</button>
           </div>
           <div id="editor2-host"></div>
         </div>
@@ -137,7 +137,7 @@
           <div id="preview-bar">
             <span class="preview-badge">preview</span>
             <span id="preview-name">preview</span>
-            <button id="preview-close" title="Close preview (Ctrl+Shift+M)">×</button>
+            <button id="preview-close" title="Close preview (Ctrl+Shift+M)" aria-label="Close preview">×</button>
           </div>
           <div id="preview-body"></div>
         </div>
@@ -146,6 +146,13 @@
         <footer id="status" hidden>
           <span id="status-text"></span>
           <span id="status-actions"></span>
+        </footer>
+        <!-- counters along the bottom edge (settings → status bar) -->
+        <footer id="statusbar" hidden>
+          <span id="sb-counts"></span>
+          <span id="sb-spacer"></span>
+          <button id="sb-mode" title="Live preview on/off (Ctrl+Shift+L)"></button>
+          <span id="sb-cursor"></span>
         </footer>
       </main>
     </div>

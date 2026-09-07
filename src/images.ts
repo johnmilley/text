@@ -2,13 +2,13 @@ import {
   Decoration,
   type DecorationSet,
   EditorView,
-  MatchDecorator,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import type { Extension, Range } from "@codemirror/state";
 import * as api from "./api";
+import { isRevealed } from "./livepreview";
 
 /** Resolve a link target (wikilink name, relative path, URL) to an img src. */
 export type ImageResolver = (target: string) => Promise<string | null>;
@@ -171,31 +171,50 @@ class ImageWidget extends WidgetType {
   }
 }
 
-/** Render image links inline below their markdown source, Obsidian-style. */
-export function imageEmbeds(resolve: ImageResolver): Extension {
-  const decorator = new MatchDecorator({
-    regexp: EMBED_RE,
-    decorate(add, _from, to, match) {
-      const parsed = parseEmbed(match);
-      if (!parsed) return;
-      add(
-        to,
-        to,
-        Decoration.widget({
-          widget: new ImageWidget(parsed.target, parsed.width, resolve),
-          side: 1,
-        }),
-      );
-    },
-  });
+/**
+ * Render image links inline.
+ *
+ * Source mode draws the picture *below* its markdown, so the link text stays
+ * readable and editable. Live preview instead **replaces** the whole
+ * `![[shot.png]]` with the picture, and puts the source back the moment the
+ * caret lands on that line — the same reveal rule the rest of live preview
+ * uses (`isRevealed`, from livepreview.ts, is the single definition of it).
+ */
+export function imageEmbeds(resolve: ImageResolver, live = false): Extension {
+  const build = (view: EditorView): DecorationSet => {
+    const ranges: Range<Decoration>[] = [];
+    for (const { from: vFrom, to: vTo } of view.visibleRanges) {
+      const text = view.state.doc.sliceString(vFrom, vTo);
+      for (const m of text.matchAll(EMBED_RE)) {
+        const parsed = parseEmbed(m as RegExpExecArray);
+        if (!parsed) continue;
+        const from = vFrom + m.index;
+        const to = from + m[0].length;
+        const widget = new ImageWidget(parsed.target, parsed.width, resolve);
+        if (live && !isRevealed(view, from, to)) {
+          ranges.push(Decoration.replace({ widget }).range(from, to));
+        } else {
+          ranges.push(Decoration.widget({ widget, side: 1 }).range(to, to));
+        }
+      }
+    }
+    return Decoration.set(ranges, true);
+  };
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
       constructor(view: EditorView) {
-        this.decorations = decorator.createDeco(view);
+        this.decorations = build(view);
       }
       update(update: ViewUpdate) {
-        this.decorations = decorator.updateDeco(update, this.decorations);
+        // in live mode the caret moving on/off a line swaps replace ↔ below
+        if (
+          update.docChanged ||
+          update.viewportChanged ||
+          (live && (update.selectionSet || update.focusChanged))
+        ) {
+          this.decorations = build(update.view);
+        }
       }
     },
     { decorations: (v) => v.decorations },

@@ -42,6 +42,10 @@ const HEADER: &str = r#"# pt — config
 #                 fixed spot on screen as you type)
 #   typewriter_anchor  where that line sits: "top" (upper third) or "center"
 #   spellcheck    underline misspelled words in the editor (browser/OS dictionary)
+#   live_preview  hide markdown syntax except on the line being edited, so the
+#                 note reads like the rendered page while you write it. The
+#                 file on disk is untouched either way; off = plain source
+#   status_bar    show words / characters / line:col along the bottom edge
 #   preview_replaces_editor  on desktop, markdown preview replaces the editor
 #                 pane instead of showing beside it (phones always replace)
 #   toolbar_capture   show the quick-capture icon in the top bar
@@ -103,6 +107,10 @@ pub struct Config {
     pub typewriter_anchor: String,
     /// underline misspelled words in the editor (browser/OS dictionary)
     pub spellcheck: bool,
+    /// hide markdown syntax except on the line being edited
+    pub live_preview: bool,
+    /// word/char/cursor counters along the bottom edge
+    pub status_bar: bool,
     /// on desktop, preview replaces the editor pane instead of a side-by-side split
     pub preview_replaces_editor: bool,
     /// show the quick-capture icon in the top bar
@@ -185,6 +193,9 @@ impl Default for Config {
             zen_typewriter: true,
             typewriter_anchor: "top".into(),
             spellcheck: false,
+            // opt-in: the app's long-standing behaviour is visible markup
+            live_preview: false,
+            status_bar: false,
             preview_replaces_editor: false,
             toolbar_capture: true,
             toolbar_calendar: true,

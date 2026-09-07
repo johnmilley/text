@@ -21,6 +21,7 @@ import { baseHighlighting, markdownStyling, toggleCheckboxAt, urlAt, wikilinkAt 
 import { imageEmbeds, type ImageResolver } from "./images";
 import { tableNextCell, tableNextRow, tablePrevCell } from "./tables";
 import { blockRenderers, type BlockRenderRuntime } from "./blockrender";
+import { livePreview } from "./livepreview";
 
 export interface NoteRef {
   name: string; // file name without extension
@@ -83,6 +84,10 @@ const typewriterScroll = (anchor: TypewriterAnchor) =>
   });
 
 const URL_RE = /^https?:\/\/\S+$/i;
+
+/** Words for the status bar: letters/digits with internal apostrophes and
+ * hyphens, so "don't" and "well-known" each count once. */
+const countWords = (text: string) => (text.match(/[\p{L}\p{N}'’-]+/gu) ?? []).length;
 
 const cmTheme = EditorView.theme({
   "&": {
@@ -276,6 +281,7 @@ export class Editor {
   private lineNumbersOn = false;
   private highlightLineOn = true;
   private spellcheckOn = false;
+  private liveOn = false;
   private currentFile = "";
   private markdownish = true;
 
@@ -498,6 +504,9 @@ export class Editor {
         ),
       ],
     });
+    // the language compartment came back frozen too — rebuild it so a tab
+    // backgrounded before live preview was toggled comes back in step
+    void this.applyLanguage(filename);
     requestAnimationFrame(() => {
       this.view.scrollDOM.scrollTop = snap.scrollTop;
     });
@@ -510,8 +519,13 @@ export class Editor {
           // markdownLanguage = commonmark + GFM (tables, strikethrough, task lists)
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           markdownStyling(),
-          imageEmbeds(this.callbacks.resolveImage),
-          this.callbacks.blockRender ? blockRenderers(this.callbacks.blockRender) : [],
+          // live preview hides the markup mdstyle has just finished styling —
+          // it rides on top, and switching it off leaves plain source mode
+          this.liveOn ? livePreview() : [],
+          imageEmbeds(this.callbacks.resolveImage, this.liveOn),
+          this.callbacks.blockRender
+            ? blockRenderers(this.callbacks.blockRender, this.liveOn)
+            : [],
         ]),
       });
       return;
@@ -567,6 +581,18 @@ export class Editor {
     });
   }
 
+  /** Live preview: hide markdown syntax except on the line being edited.
+   * Only ever applied to markdown documents (see applyLanguage). */
+  setLivePreview(on: boolean) {
+    if (on === this.liveOn) return;
+    this.liveOn = on;
+    void this.applyLanguage(this.currentFile);
+  }
+
+  get livePreviewOn(): boolean {
+    return this.liveOn;
+  }
+
   setSpellcheck(on: boolean) {
     if (on === this.spellcheckOn) return;
     this.spellcheckOn = on;
@@ -610,17 +636,27 @@ export class Editor {
     this.view.focus();
   }
 
-  status(): { line: number; col: number; words: number; chars: number } {
+  /** Cheap, safe to call on every keystroke: where the caret is, and how much
+   * is selected. Counting the *document* means walking all of it, so that
+   * lives in `docStatus()` and the status bar throttles it. */
+  cursorStatus(): { line: number; col: number; selWords: number; selChars: number } {
     const state = this.view.state;
     const head = state.selection.main.head;
     const line = state.doc.lineAt(head);
-    const text = state.doc.toString();
-    const words = (text.match(/[\p{L}\p{N}'’-]+/gu) ?? []).length;
-    return {
-      line: line.number,
-      col: head - line.from + 1,
-      words,
-      chars: text.length,
-    };
+    let selChars = 0;
+    let selWords = 0;
+    for (const range of state.selection.ranges) {
+      if (range.empty) continue;
+      const text = state.sliceDoc(range.from, range.to);
+      selChars += text.length;
+      selWords += countWords(text);
+    }
+    return { line: line.number, col: head - line.from + 1, selWords, selChars };
+  }
+
+  /** Whole-document counts — O(doc), so call it on a throttle. */
+  docStatus(): { words: number; chars: number } {
+    const text = this.view.state.doc.toString();
+    return { words: countWords(text), chars: text.length };
   }
 }

@@ -6,7 +6,7 @@ import {
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view";
-import { type Extension, RangeSetBuilder } from "@codemirror/state";
+import { type EditorState, type Extension, RangeSetBuilder } from "@codemirror/state";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 
@@ -155,22 +155,30 @@ const inlineCode = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
+/**
+ * The YAML frontmatter block at the top of the file, as a line range, or null.
+ *
+ * The markdown grammar has no frontmatter rule, so this is matched by hand —
+ * and shared, because live preview needs the same answer (it collapses the
+ * block, and must keep the `---` fences from being mistaken for a rule).
+ */
+export function frontmatterLines(state: EditorState): { first: number; last: number } | null {
+  const doc = state.doc;
+  if (doc.lines < 2 || doc.line(1).text.trim() !== "---") return null;
+  for (let n = 2; n <= Math.min(doc.lines, 100); n++) {
+    const text = doc.line(n).text.trim();
+    if (text === "---" || text === "...") return { first: 1, last: n };
+  }
+  return null;
+}
+
 /** YAML frontmatter at the top of the file, dimmed as metadata. */
 function buildFrontmatter(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
-  const doc = view.state.doc;
-  if (doc.lines < 2 || doc.line(1).text.trim() !== "---") return builder.finish();
-  let close = 0;
-  for (let n = 2; n <= Math.min(doc.lines, 100); n++) {
-    const text = doc.line(n).text.trim();
-    if (text === "---" || text === "...") {
-      close = n;
-      break;
-    }
-  }
-  if (!close) return builder.finish();
-  for (let n = 1; n <= close; n++) {
-    const line = doc.line(n);
+  const range = frontmatterLines(view.state);
+  if (!range) return builder.finish();
+  for (let n = range.first; n <= range.last; n++) {
+    const line = view.state.doc.line(n);
     builder.add(line.from, line.from, Decoration.line({ class: "cm-frontmatter" }));
   }
   return builder.finish();

@@ -193,6 +193,24 @@ export function openSettings(host: SettingsHost) {
     };
 
     row(
+      "live preview",
+      checkbox(
+        () => host.config.live_preview,
+        (v) => (host.config.live_preview = v),
+        host.applyEditorView,
+      ),
+      "hide markdown syntax except on the line you're editing (Ctrl+Shift+L)",
+    );
+    row(
+      "status bar",
+      checkbox(
+        () => host.config.status_bar,
+        (v) => (host.config.status_bar = v),
+        host.applyEditorView,
+      ),
+      "words, characters and line:col along the bottom edge",
+    );
+    row(
       "line numbers",
       checkbox(
         () => host.config.line_numbers,

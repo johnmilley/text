@@ -50,6 +50,17 @@ combos); `WEBKIT_DISABLE_DMABUF_RENDERER=0` overrides.
   Ctrl+Click follows, creating the note if missing), Mermaid diagrams
   rendered in place, optional vim mode. `Ctrl+Shift+M` opens a rendered
   preview beside the editor.
+- **Live preview** — `Ctrl+Shift+L` hides the markdown syntax on every line
+  but the one you're editing: headings lose their `#`, `**bold**` is just
+  bold, tasks become real checkboxes, images and `dataview`/`mermaid` blocks
+  replace their source, and frontmatter folds to a chip. Move the caret onto
+  a line and its source comes straight back. The file on disk never changes —
+  it's decoration, not a different format — so turning it off leaves plain
+  markdown source. Off by default on desktop, on in the phone build.
+- **Command palette** — `Ctrl+P` is one picker with four lists: files by
+  default, `>` for every command in the app (mods included), `#` to jump to
+  a heading in the open note, `@` to find a tag. `Ctrl+Shift+P` opens
+  straight into commands, `Alt+G` into the outline.
 - **Daily notes** — a calendar (`Ctrl+Shift+C`) marks and opens daily notes
   (`daily/YYYY/MM/YYYY-MM-DD.md`) and shows "on this day" entries from past
   years. Quick capture (`Ctrl+Shift+J`, or the pencil in the top bar)
@@ -87,8 +98,8 @@ combos); `WEBKIT_DISABLE_DMABUF_RENDERER=0` overrides.
 ## Configuration
 
 `Ctrl+,` opens settings: theme and font with live preview, sizes, margins,
-line width, vim mode, daily/image folders, and every shortcut (click a
-binding, press new keys). It persists to `~/.config/pt/config.toml`,
+line width, live preview, status bar, vim mode, daily/image folders, and every
+shortcut (click a binding, press new keys). It persists to `~/.config/pt/config.toml`,
 which stays hand-editable and documents every field in its comment header.
 
 ## Shortcuts
@@ -98,7 +109,9 @@ settings or `[keys]` in config.toml.
 
 | Key | Action |
 | --- | --- |
-| `Ctrl+P` | quick switcher (type a new name + Enter to create) |
+| `Ctrl+P` | quick switcher — `>` commands, `#` headings, `@` tags (type a new name + Enter to create) |
+| `Ctrl+Shift+P` | command palette |
+| `Alt+G` | outline — jump to a heading |
 | `Ctrl+N` | new note |
 | `Ctrl+Shift+J` | quick capture into today's daily note |
 | `Ctrl+Shift+C` | calendar |
@@ -106,6 +119,7 @@ settings or `[keys]` in config.toml.
 | `Ctrl+F` / `Ctrl+Shift+F` | find in file / search the folder |
 | `Ctrl+Shift+B` | backlinks to the open note |
 | `Ctrl+Shift+M` | rendered preview beside the editor |
+| `Ctrl+Shift+L` | live preview (hide markdown syntax off the cursor line) |
 | `Ctrl+Shift+S` | export the folder (HTML / PDF) |
 | `Ctrl+B` / `Ctrl+I` / `Ctrl+Shift+X` | bold / italic / strikethrough |
 | `Ctrl+1` … `Ctrl+6` | heading level (again clears it) |
@@ -114,7 +128,7 @@ settings or `[keys]` in config.toml.
 | `Alt+←` / `Alt+→` | back / forward through opened files (per tab) |
 | `Ctrl+T` / `Ctrl+W` | new / close tab (middle-click a file opens a tab) |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | next / previous tab |
-| `Ctrl+Shift+N` | new window |
+| `Ctrl+Shift+N` / `Ctrl+Alt+N` | new folder / new window |
 | `Ctrl+Shift+\` | split editor (vertical → horizontal → off) |
 | `Alt+Z` or `F11` | zen mode: fullscreen, centered column, typewriter scroll |
 | `Ctrl+E` | focus the file tree |
@@ -132,7 +146,8 @@ src-tauri/src/     Rust backend: files.rs (atomic writes, conflicts),
                    search.rs, watch.rs, windows.rs, themes.rs, config.rs,
                    render.rs (markdown → HTML)
 src/               frontend (vanilla TS): main.ts (app shell), editor.ts
-                   (CodeMirror 6), tables.ts, settings.ts, mdstyle.ts,
+                   (CodeMirror 6), tables.ts, settings.ts, mdstyle.ts
+                   (syntax styling), livepreview.ts (syntax hiding),
                    pdf.ts, theme.ts, dropbox/ (web backend)
 src/mods/          the extension system + reference mods
                    (ssg, dataview, daily, toc) — see MOD_API.md

@@ -1,12 +1,10 @@
+import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import {
-  Decoration,
-  type DecorationSet,
-  EditorView,
-  ViewPlugin,
-  type ViewUpdate,
-  WidgetType,
-} from "@codemirror/view";
-import { RangeSetBuilder, type Extension } from "@codemirror/state";
+  type EditorState,
+  type Extension,
+  type Range,
+  StateField,
+} from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 
 /**
@@ -53,12 +51,17 @@ class BlockWidget extends WidgetType {
     private readonly lang: string,
     private readonly src: string,
     private readonly rt: BlockRenderRuntime,
+    /** true when this widget stands *in place of* the source (live preview),
+     * which is the only case that needs a way back to the text */
+    private readonly replacing = false,
   ) {
     super();
   }
 
   eq(other: BlockWidget) {
-    return other.lang === this.lang && other.src === this.src;
+    return (
+      other.lang === this.lang && other.src === this.src && other.replacing === this.replacing
+    );
   }
 
   toDOM(view: EditorView) {
@@ -66,15 +69,48 @@ class BlockWidget extends WidgetType {
     box.className = "block-widget";
     const spec = this.rt.specs.get(this.lang);
     if (!spec) return box;
+    // the mod owns its own element and may replaceChildren() on it at any
+    // time (dataview re-renders when its query resolves) — so the edit button
+    // lives on the wrapper, out of reach
+    const target = document.createElement("div");
+    box.appendChild(target);
     const ctx: BlockRenderContext = {
-      el: box,
+      el: target,
       source: this.src,
       onInvalidate: this.rt.onInvalidate,
       requestMeasure: () => view.requestMeasure(),
     };
     const cleanup = spec.render(ctx);
     if (cleanup) box.addEventListener("block-destroy", cleanup as EventListener);
+    if (this.replacing) box.appendChild(this.editButton(view));
     return box;
+  }
+
+  /**
+   * The way back into a block whose source has been replaced.
+   *
+   * Without this a rendered block is a dead end: the lines are not drawn, so
+   * there is nothing to click and arrow keys step over the whole thing. The
+   * button drops the caret on the first line of the body, which reveals the
+   * source (the field rebuilds on every selection change).
+   */
+  private editButton(view: EditorView): HTMLElement {
+    const btn = document.createElement("button");
+    btn.className = "block-edit";
+    btn.type = "button";
+    btn.textContent = this.lang;
+    btn.title = `Edit this ${this.lang} block`;
+    btn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const at = view.posAtDOM(btn); // start of the opening fence line
+      const doc = view.state.doc;
+      const openLine = doc.lineAt(at);
+      const body = Math.min(openLine.number + 1, doc.lines);
+      view.dispatch({ selection: { anchor: doc.line(body).from }, scrollIntoView: true });
+      view.focus();
+    });
+    return btn;
   }
 
   destroy(dom: HTMLElement) {
@@ -82,54 +118,91 @@ class BlockWidget extends WidgetType {
   }
 }
 
-function buildBlocks(view: EditorView, rt: BlockRenderRuntime): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>();
-  const doc = view.state.doc;
-  for (const range of view.visibleRanges) {
-    syntaxTree(view.state).iterate({
-      from: range.from,
-      to: range.to,
-      enter(node) {
-        if (node.name !== "FencedCode") return;
-        const open = doc.lineAt(node.from).text.trim();
-        const m = FENCE_LANG.exec(open);
-        const lang = m?.[2].toLowerCase();
-        if (!lang || !rt.specs.has(lang)) return;
-        const src = doc.sliceString(
-          Math.min(doc.lineAt(node.from).to + 1, node.to),
-          doc.lineAt(node.to).from,
-        );
-        // inline widget styled display:block (like image embeds) — view
-        // plugins may not contribute true block decorations
-        builder.add(
-          node.to,
-          node.to,
-          Decoration.widget({ widget: new BlockWidget(lang, src.trim(), rt), side: 1 }),
-        );
-      },
-    });
-  }
-  return builder.finish();
+/**
+ * Where a mod-rendered fenced block sits, and whether the caret is in it.
+ * `body` is the source between the fences; `from`/`to` span whole lines, which
+ * is what a block-level replacement requires.
+ */
+interface FencedBlock {
+  lang: string;
+  body: string;
+  from: number;
+  to: number;
 }
 
-/** CodeMirror extension that renders every registered block language. */
-export function blockRenderers(rt: BlockRenderRuntime): Extension {
-  return ViewPlugin.fromClass(
-    class {
-      decorations: DecorationSet;
-      constructor(view: EditorView) {
-        this.decorations = buildBlocks(view, rt);
-      }
-      update(update: ViewUpdate) {
-        if (
-          update.docChanged ||
-          update.viewportChanged ||
-          syntaxTree(update.state) !== syntaxTree(update.startState)
-        ) {
-          this.decorations = buildBlocks(update.view, rt);
-        }
-      }
+function findBlocks(state: EditorState, rt: BlockRenderRuntime): FencedBlock[] {
+  const doc = state.doc;
+  const out: FencedBlock[] = [];
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name !== "FencedCode") return;
+      const openLine = doc.lineAt(node.from);
+      const m = FENCE_LANG.exec(openLine.text.trim());
+      const lang = m?.[2].toLowerCase();
+      if (!lang || !rt.specs.has(lang)) return false;
+      const closeLine = doc.lineAt(node.to);
+      const body = doc.sliceString(
+        Math.min(openLine.to + 1, node.to),
+        closeLine.from,
+      );
+      out.push({ lang, body: body.trim(), from: openLine.from, to: closeLine.to });
+      return false; // nothing inside a fence needs visiting
     },
-    { decorations: (v) => v.decorations },
-  );
+  });
+  return out;
+}
+
+/**
+ * Decorations for every registered block language in the document.
+ *
+ * Source mode hangs the rendered output *below* the fence, leaving the source
+ * on screen. Live preview replaces the fence and its body outright, so a note
+ * full of `mermaid`/`dataview` blocks reads as the diagrams and tables they
+ * produce — until the caret moves into one, which brings its source back.
+ */
+function buildBlocks(state: EditorState, rt: BlockRenderRuntime, live: boolean): DecorationSet {
+  const ranges: Range<Decoration>[] = [];
+  for (const block of findBlocks(state, rt)) {
+    const editing =
+      live &&
+      state.selection.ranges.some((sel) => sel.to >= block.from && sel.from <= block.to);
+    if (live && !editing) {
+      const widget = new BlockWidget(block.lang, block.body, rt, true);
+      ranges.push(Decoration.replace({ widget, block: true }).range(block.from, block.to));
+    } else {
+      // inline widget styled display:block (like image embeds) — side 1 puts
+      // it after the closing fence
+      const widget = new BlockWidget(block.lang, block.body, rt);
+      ranges.push(Decoration.widget({ widget, side: 1 }).range(block.to, block.to));
+    }
+  }
+  return Decoration.set(ranges, true);
+}
+
+/**
+ * CodeMirror extension that renders every registered block language.
+ *
+ * This is a `StateField` rather than a view plugin because a live-preview
+ * replacement covers whole lines, and only a state field may provide those.
+ * The cost is that it looks at the whole document instead of the viewport —
+ * acceptable, since it stops at each fence rather than descending into it.
+ */
+export function blockRenderers(rt: BlockRenderRuntime, live = false): Extension {
+  return StateField.define<DecorationSet>({
+    create: (state) => buildBlocks(state, rt, live),
+    update(deco, tr) {
+      // a selection move matters in live mode: it decides whether the block
+      // shows its source. The tree comparison catches background parsing
+      // finishing a long document after the edit that triggered it.
+      if (
+        !tr.docChanged &&
+        !tr.selection &&
+        syntaxTree(tr.startState) === syntaxTree(tr.state)
+      ) {
+        return deco;
+      }
+      return buildBlocks(tr.state, rt, live);
+    },
+    provide: (field) => EditorView.decorations.from(field),
+  });
 }
