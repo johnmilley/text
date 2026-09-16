@@ -46,8 +46,9 @@ pub fn cli_params() -> Option<WindowInit> {
 
 /// Open another app window, optionally on a specific root and file (used by
 /// "open in new window" and dragging a tab out of the window).
+/// Must be async: building a window from a sync command deadlocks WebView2.
 #[tauri::command]
-pub fn open_window(
+pub async fn open_window(
     app: AppHandle,
     state: State<'_, WindowParams>,
     root: Option<String>,

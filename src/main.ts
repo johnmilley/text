@@ -158,6 +158,8 @@ const expanded = new Set<string>(
 const rel = (path: string) =>
   root && path.startsWith(root) ? path.slice(root.length).replace(/^\//, "") : path;
 
+const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+
 const stem = (name: string) => name.replace(/\.[^.]+$/, "");
 
 const isNote = (name: string) => /\.(md|markdown|mdown)$/i.test(name);
@@ -2365,7 +2367,7 @@ async function renderWelcome() {
   const h1 = document.createElement("h1");
   h1.textContent = "pt";
   const tag = document.createElement("p");
-  tag.textContent = root ? rel(root) || (root.split("/").pop() ?? root) : "a plain editor for a folder of plain files";
+  tag.textContent = root ? baseName(root) : "a plain editor for a folder of plain files";
   box.append(h1, tag);
 
   // primary actions
@@ -3432,7 +3434,7 @@ function openSettingsPanel() {
 async function openRoot(path: string) {
   const switching = root !== null && root !== path;
   root = path;
-  $("#folder-name").textContent = path.split("/").pop() ?? path;
+  $("#folder-name").textContent = baseName(path);
   if (switching) {
     tabs = [blankTab()];
     active = 0;
