@@ -34,6 +34,12 @@ Four mods ship as worked examples, deliberately different in shape:
   `folderOrders`). Built entirely on existing seams (`ui.info` + `fs` +
   `openNote`) — proof a whole view fits the API.
 
+- [`src/mods/manuscript`](src/mods/manuscript) — an **export** mod for book
+  writers: a folder → standard-manuscript-format `.docx`, EPUB, print PDF, or
+  one Markdown file, in sidebar order. Writes zip containers with a tiny
+  built-in zip writer. Motivated `fs.listTreeSorted`, `fs.writeBinary`,
+  `platform.desktop`, and `ui.download`.
+
 Together they exercise both kinds of extension point: discrete commands / menu
 items / toolbar buttons, and content rendered into the editor.
 
@@ -120,6 +126,7 @@ Summary:
 | Member | Description |
 | --- | --- |
 | `fs.listTree(root)` | The sidebar's folder tree (text/image/audio/video/pdf files). |
+| `fs.listTreeSorted(root)` | The same tree in the exact order the sidebar shows (folders first, corkboard arrangement applied). |
 | `fs.readText(path)` | Read a UTF-8 text file. |
 | `fs.readBase64(path)` | Read any file (incl. binary) as base64. |
 | `fs.writeText(path, content)` | Write text to an exact path, creating parent dirs. |
@@ -127,6 +134,8 @@ Summary:
 | `fs.createDir(path)` | Create a directory and any missing parents. |
 | `fs.createFile(path)` | Create an empty file; rejects if it exists. |
 | `fs.pickDirectory({ title? })` | Native folder picker → path or `null`. |
+| `fs.writeBinary(path, bytes)` | Write a `Uint8Array` to an exact path, overwriting. |
+| `platform.desktop` | `true` in the desktop app, `false` in the web/PWA build (no local filesystem — use `ui.download`). |
 | `render.markdownToHtml(text)` | Markdown → HTML via the host renderer (see contract below). |
 | `notes.collect()` | Metadata (frontmatter, tags, tasks) for every note in the open folder, cached and refreshed after fs changes. |
 | `openNote(path, line?)` | Open a note in the editor, optionally jumping to a 1-based line. |
@@ -137,6 +146,7 @@ Summary:
 | `ui.confirm(message, okLabel?)` | Yes/no modal → boolean. |
 | `ui.prompt(label, initial?)` | Single-line prompt → string or `null`. |
 | `ui.close()` | Close the modal opened via info/confirm/prompt. |
+| `ui.download(name, bytes, mime)` | Hand the user a generated file as a browser download (the web/PWA way to "save"). |
 | `system.compileLatex(path)` | Desktop-only: compile a `.tex` file with the system's `pdflatex` (run twice, so cross-references resolve). Resolves `{ ok, pdfPath, log }`; rejects on the web build. |
 
 ### The `render.markdownToHtml` contract

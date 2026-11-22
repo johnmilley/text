@@ -81,8 +81,19 @@ combos); `WEBKIT_DISABLE_DMABUF_RENDERER=0` overrides.
   textbook-style document: standalone HTML with the folder tree as a table
   of contents, or PDF via the print dialog. Wikilinks, embeds, and Mermaid
   diagrams survive the trip ([docs/EXPORT_STYLE.md](docs/EXPORT_STYLE.md)).
+- **Manuscript compile** — `Ctrl+Alt+B` (or right-click a folder →
+  *compile manuscript…*) turns a book folder into a Word file in standard
+  manuscript format (cover page with contact block and word count,
+  double-spaced, `Surname / TITLE / page` header, each chapter on a new page),
+  an EPUB, print-ready PDF pages, or one Markdown file. It follows the
+  sidebar order — corkboard arrangement included. Each note in the folder is
+  a chapter; each subfolder is a chapter whose notes are its scenes. Names
+  starting with `_`, notes with `compile: false` frontmatter, and
+  `<!-- -->` / `%% %%` comments are left out. Untick chapters in the dialog to
+  skip them; settings are kept in the folder's `.manuscript.json`.
 - **Tabs, splits, windows** — each tab keeps its own history, cursor, and
-  undo; `Ctrl+Shift+\` splits the editor; drag a tab out of the window to
+  undo; `Ctrl+Shift+\` splits the editor into a second pane with its own
+  tabs (drag a tab onto it to move it across); drag a tab out of the window to
   detach it. Windows are independent (even different folders) and sync
   through the file watcher.
 - **Beyond markdown** — images view inline and in a viewer (rotate, zoom,
@@ -132,11 +143,11 @@ settings or `[keys]` in config.toml.
 | `Ctrl+1` … `Ctrl+6` | heading level (again clears it) |
 | `Ctrl+K` | markdown link from the selection |
 | `Ctrl+Enter` or `Ctrl+Click` | follow `[[wikilink]]` (creates if missing) |
-| `Alt+←` / `Alt+→` | back / forward through opened files (per tab) |
+| `Ctrl+[` / `Ctrl+]` (also `Alt+←` / `Alt+→`) | back / forward through opened files (per tab) |
 | `Ctrl+T` / `Ctrl+W` | new / close tab (middle-click a file opens a tab) |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | next / previous tab |
 | `Ctrl+Shift+N` / `Ctrl+Alt+N` | new folder / new window |
-| `Ctrl+Shift+\` | split editor (vertical → horizontal → off) |
+| `Ctrl+Shift+\` | split editor (vertical → horizontal → off) — the split has its own tabs; drag a tab onto it or right-click → "move to split pane" |
 | `Alt+Z` or `F11` | zen mode: fullscreen, centered column, typewriter scroll |
 | `Ctrl+E` | focus the file tree |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | editor font size (`+Shift` for UI font; `0` resets) |

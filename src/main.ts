@@ -58,6 +58,8 @@ let root: string | null = null;
 let tree: api.Entry[] = [];
 let allFiles: { rel: string; path: string; conflicted: boolean }[] = [];
 let notes: NoteRef[] = [];
+/** every non-note file, for `[[` completion (name = full file name) */
+let attachments: NoteRef[] = [];
 
 let currentPath: string | null = null;
 let currentMtime: number | null = null;
@@ -89,7 +91,7 @@ interface TabSnap {
   scrollTop: number;
 }
 
-/** A backgrounded tab's split-pane file + editor state (mirrors TabSnap). */
+/** A backgrounded split-pane tab's file + editor state (mirrors TabSnap). */
 interface Pane2Snap {
   path: string;
   mtime: number | null;
@@ -103,11 +105,8 @@ interface Tab {
   back: string[]; // per-tab nav history (Alt+← / Alt+→)
   fwd: string[];
   snap?: TabSnap;
-  // each tab carries its own secondary layout: a split pane (mode + the file
-  // shown there) and whether the markdown preview is open. Restored when the
-  // tab comes back to the foreground.
-  split: "off" | "v" | "h";
-  pane2?: Pane2Snap;
+  // whether this tab's markdown preview is open — restored when the tab
+  // comes back to the foreground
   previewOn: boolean;
 }
 
@@ -115,20 +114,27 @@ const blankTab = (path: string | null = null): Tab => ({
   path,
   back: [],
   fwd: [],
-  split: "off",
   previewOn: false,
 });
+
+/** A tab in the split pane's own tab strip (text files only). */
+interface P2Tab {
+  path: string | null; // null = empty tab
+  snap?: Pane2Snap;
+}
 
 let tabs: Tab[] = [blankTab()];
 let active = 0;
 const tab = () => tabs[active];
 
-// split pane: a second, text-only editor beside (or below) the main pane.
-// Tabs and media views always belong to pane 1; pane 2 is for referencing
-// or editing one other note alongside. `split`/`pane2*`/preview below are the
-// *currently displayed* secondary state; each tab stashes its own copy on
-// switch (stashSecondary) and restores it on return (restoreSecondary).
+// split pane: a second editor group beside (or below) the main pane, with its
+// own tab strip. It is window-level — switching tabs in pane 1 leaves it be.
+// Media views (image/audio/pdf) always open in pane 1; pane 2 holds text.
+// `pane2*` below is the live state of pane 2's *active* tab; the others are
+// parked as snapshots in pane2Tabs (like pane 1's TabSnap).
 let split: "off" | "v" | "h" = "off";
+let pane2Tabs: P2Tab[] = [];
+let pane2Active = 0;
 let focusedPane: 1 | 2 = 1;
 let editor2: Editor | null = null;
 let pane2Path: string | null = null;
@@ -159,6 +165,16 @@ const rel = (path: string) =>
   root && path.startsWith(root) ? path.slice(root.length).replace(/^\//, "") : path;
 
 const baseName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+
+/** Bytes → base64 in chunks (String.fromCharCode on a huge array overflows
+ * the call stack). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
 
 const stem = (name: string) => name.replace(/\.[^.]+$/, "");
 
@@ -214,6 +230,7 @@ function today(): string {
 function flatten(entries: api.Entry[]) {
   allFiles = [];
   notes = [];
+  attachments = [];
   const walk = (items: api.Entry[]) => {
     for (const item of items) {
       if (item.is_dir) {
@@ -225,6 +242,7 @@ function flatten(entries: api.Entry[]) {
           conflicted: /conflicted copy/i.test(item.name),
         });
         if (isNote(item.name)) notes.push({ name: stem(item.name), path: item.path });
+        else attachments.push({ name: item.name, path: item.path });
       }
     }
   };
@@ -686,7 +704,6 @@ async function movePathCore(entry: api.Entry, destDir: string): Promise<string |
       currentPath = to + currentPath.slice(entry.path.length);
       rememberFile(currentPath);
     }
-    if (pane2Path === entry.path) pane2Path = to;
     remapTabs(entry.path, to);
     if (expanded.delete(entry.path)) {
       expanded.add(to);
@@ -907,6 +924,14 @@ function buildTextApi(): TextAPI {
     },
     fs: {
       listTree: (r) => api.listTree(r),
+      listTreeSorted: async (r) => {
+        const t = await api.listTree(r);
+        // corkboard orders are read for the open root (they're keyed by
+        // absolute dir path, so a subfolder of it is covered too)
+        const orders = await api.folderOrders(root ?? r).catch(() => ({}));
+        sortTree(t, r, false, orders);
+        return t;
+      },
       readText: (path) => api.readFile(path).then((f) => f.content),
       readBase64: (path) => api.readBase64(path),
       // mod writes under the root refresh the sidebar themselves — the web
@@ -923,6 +948,10 @@ function buildTextApi(): TextAPI {
         if (root && path.startsWith(root + "/")) void refreshTree();
       },
       pickDirectory: (opts) => pickFolder(opts?.title ?? "Choose folder"),
+      writeBinary: async (path, bytes) => {
+        await api.overwriteBase64(path, bytesToBase64(bytes));
+        if (root && path.startsWith(root + "/")) void refreshTree();
+      },
     },
     render: { markdownToHtml: (text) => api.renderPreview(text) },
     notes: { collect: () => collectNotesCached() },
@@ -932,7 +961,18 @@ function buildTextApi(): TextAPI {
       compileLatex: (path) =>
         api.compileLatex(path).then((r) => ({ ok: r.ok, pdfPath: r.pdf_path, log: r.log })),
     },
+    platform: { desktop: platform.isTauri },
     ui: {
+      download: (name, bytes, mime) => {
+        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      },
       info: (build) => infoBox(build),
       confirm: (message, okLabel = "OK") => confirmBox(message, okLabel),
       prompt: (label, initial) => promptText(label, initial),
@@ -966,7 +1006,12 @@ let treeOrders: Record<string, string[]> = {};
  * folders with a corkboard order, which wins outright — the sidebar mirrors
  * the board, files and folders interleaved; names not on the board keep the
  * default order after them. */
-function sortTree(entries: api.Entry[], dir: string, inDaily: boolean) {
+function sortTree(
+  entries: api.Entry[],
+  dir: string,
+  inDaily: boolean,
+  orders: Record<string, string[]> = treeOrders,
+) {
   const dailyPath = `${root}/${config.daily_dir}`;
   const dirs = entries.filter((e) => e.is_dir);
   const files = entries.filter((e) => !e.is_dir);
@@ -978,14 +1023,14 @@ function sortTree(entries: api.Entry[], dir: string, inDaily: boolean) {
   }
   entries.length = 0;
   entries.push(...dirs, ...files);
-  const order = treeOrders[dir];
+  const order = orders[dir];
   if (order) {
     const rank = new Map(order.map((n, i) => [n, i]));
     const r = (e: api.Entry) => rank.get(e.name) ?? order.length; // unlisted: after
     entries.sort((a, b) => r(a) - r(b)); // stable — ties keep the order set above
   }
   for (const d of dirs) {
-    if (d.children) sortTree(d.children, d.path, inDaily || d.path === dailyPath);
+    if (d.children) sortTree(d.children, d.path, inDaily || d.path === dailyPath, orders);
   }
 }
 
@@ -1127,51 +1172,22 @@ async function stashActiveTab() {
   await stashSecondary(t);
 }
 
-/** Park the active tab's split + preview state before switching away. Flushes
- * a dirty split pane to disk so a backgrounded tab never holds unsaved edits
- * outside its snapshot. */
+/** Park the active tab's preview state before switching away. (The split
+ * pane is window-level and is left alone.) */
 async function stashSecondary(t: Tab) {
-  t.split = split;
   t.previewOn = previewOn();
-  if (split !== "off" && pane2Path && editor2) {
-    if (pane2Dirty) await savePane2();
-    t.pane2 = {
-      path: pane2Path,
-      mtime: pane2Mtime,
-      dirty: pane2Dirty,
-      ...editor2.snapshot(),
-    };
-  } else {
-    t.pane2 = undefined;
-  }
 }
 
-/** Collapse the live secondary layout to nothing — the clean baseline every
- * `activateTab` starts from. Does not save; callers flush first (stashSecondary
- * on switch, an explicit savePane2 on close). */
+/** Close the preview and hand focus back to pane 1 — the clean baseline every
+ * `activateTab` starts from. */
 function teardownSecondary() {
-  window.clearTimeout(pane2SaveTimer);
-  split = "off";
-  pane2Path = null;
-  pane2Mtime = null;
-  pane2Dirty = false;
-  $("#pane2").hidden = true;
-  $("#content").classList.remove("split-h");
   setPreview(false);
   setFocusedPane(1);
 }
 
-/** Bring back a tab's split + preview after its pane-1 content is live. */
+/** Bring back a tab's preview after its pane-1 content is live. */
 async function restoreSecondary(t: Tab) {
   setPreview(t.previewOn); // renders against the now-current pane-1 note
-  if (t.split === "off") return;
-  split = t.split;
-  $("#content").classList.toggle("split-h", t.split === "h");
-  $("#pane2").hidden = false;
-  ensureEditor2();
-  if (t.pane2) await restorePane2Snap(t.pane2);
-  else emptyPane2();
-  // the tab always drives pane 1; the user clicks into pane 2 to edit there
 }
 
 /** Restore a split-pane snapshot, reconciling with the file on disk the same
@@ -1199,7 +1215,6 @@ async function restorePane2Snap(s: Pane2Snap) {
       pane2SaveTimer = window.setTimeout(() => void savePane2(), 900);
     }
   }
-  $("#pane2-name").textContent = rel(s.path);
 }
 
 /** Restore a stashed snapshot if it still matches the file on disk (or holds
@@ -1234,9 +1249,8 @@ async function tryRestoreSnap(t: Tab): Promise<boolean> {
  * disk. Never records nav history. */
 async function activateTab() {
   renderTabs();
-  // start from a clean secondary baseline, then restore this tab's own split +
-  // preview once its pane-1 content is live (below). Callers that reach here
-  // without a stash (closeTab) flush the discarded pane 2 themselves.
+  // start from a clean baseline, then restore this tab's own preview once its
+  // pane-1 content is live (below)
   teardownSecondary();
   const t = tab();
   navigating = true;
@@ -1278,9 +1292,6 @@ async function closeTab(i: number) {
   if (!tabs[i]) return;
   // a failed/conflicted save keeps the tab open — closing would lose edits
   if (i === active && dirty && !(await save()) && dirty) return;
-  // flush the active tab's split pane before it's discarded (backgrounded tabs
-  // were already flushed when they were stashed)
-  if (i === active && split !== "off" && pane2Dirty) await savePane2();
   tabs.splice(i, 1);
   if (!tabs.length) {
     // last tab: every window keeps an empty tab — closing the window is the
@@ -1306,7 +1317,6 @@ async function closeOtherTabs(i: number) {
   const wasActive = tabs[active] === keep;
   // discarding the active tab with a failed save would lose edits
   if (!wasActive && dirty && !(await save()) && dirty) return;
-  if (!wasActive && split !== "off" && pane2Dirty) await savePane2();
   tabs = [keep];
   active = 0;
   if (wasActive) renderTabs();
@@ -1343,16 +1353,20 @@ function remapTabs(from: string, to: string) {
   for (const t of tabs) {
     t.path = remap(t.path);
     if (t.snap) t.snap.path = remap(t.snap.path)!;
-    if (t.pane2) t.pane2.path = remap(t.pane2.path)!;
+  }
+  for (const t of pane2Tabs) {
+    t.path = remap(t.path);
+    if (t.snap) t.snap.path = remap(t.snap.path)!;
   }
   pane2Path = remap(pane2Path);
-  if (pane2Path) $("#pane2-name").textContent = rel(pane2Path);
   renderTabs();
+  if (split !== "off") renderPane2Tabs();
 }
 
 function tabContextMenu(e: MouseEvent, i: number) {
   const items: [string, () => void][] = [["close tab", () => void closeTab(i)]];
   if (tabs.length > 1) items.push(["close other tabs", () => void closeOtherTabs(i)]);
+  if (canMoveToSplit(tabs[i].path)) items.push(["move to split pane", () => void moveTabToSplit(i)]);
   items.push(["move to new window", () => void detachTab(i)]);
   openCtxMenu(e, items);
 }
@@ -1420,6 +1434,8 @@ function beginTabDrag(t: Tab, e: MouseEvent) {
       ev.clientX > window.innerWidth ||
       ev.clientY > window.innerHeight;
     if (outside) return void detachTab(i);
+    // dropped on the split pane's tab strip: move it over there
+    if (split !== "off" && overRect($("#pane2-bar"), ev)) return void moveTabToSplit(i);
     if (dropAt !== null) reorderTab(i, dropAt);
   };
 
@@ -1442,6 +1458,7 @@ function setFocusedPane(n: 1 | 2) {
   if (n === 2 && split === "off") n = 1;
   focusedPane = n;
   $("#pane2").classList.toggle("pane-focused", n === 2);
+  $("#group1").classList.toggle("pane-focused", n === 1);
   setCurrentRow(n === 2 ? pane2Path : currentPath);
   updateStatus();
 }
@@ -1450,20 +1467,25 @@ function ensureEditor2(): Editor {
   if (editor2) return editor2;
   editor2 = new Editor($("#editor2-host"), {
     onDocChanged: () => {
-      pane2Dirty = true;
+      if (!pane2Dirty) {
+        pane2Dirty = true;
+        renderPane2Tabs(); // show the unsaved dot
+      }
       window.clearTimeout(pane2SaveTimer);
       pane2SaveTimer = window.setTimeout(() => void savePane2(), 900);
     },
     onStatus: () => {},
     onSave: () => void savePane2(),
     getNotes: () => notes,
+    getAttachments: () => attachments,
     openWikilink, // focus is in pane 2 when clicked, so it routes back here
     openExternal: (url) => void openUrl(url),
     resolveImage: imageResolver(() => pane2Path),
     importImageBlob,
     importNativeImage,
-    onNavBack: () => {},
-    onNavForward: () => {},
+    // history belongs to pane 1's tabs — navigate() moves focus back there
+    onNavBack: goBack,
+    onNavForward: goForward,
     blockRender: blockRenderRuntime,
   });
   editor2.setVim(config.vim_mode);
@@ -1473,6 +1495,20 @@ function ensureEditor2(): Editor {
   return editor2;
 }
 
+const overRect = (el: HTMLElement, ev: MouseEvent) => {
+  const r = el.getBoundingClientRect();
+  return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+};
+
+/** Pane 2 holds text files only, and never the file pane 1 is showing. */
+const canMoveToSplit = (path: string | null): path is string =>
+  !!path &&
+  !isPhone() &&
+  !isViewableImage(path) &&
+  !isAudioFile(path) &&
+  !isPdfFile(path) &&
+  !isVideoFile(path);
+
 async function cycleSplit() {
   if (isPhone()) return; // phones are single-pane — no side-by-side split
   await setSplit(split === "off" ? "v" : split === "v" ? "h" : "off");
@@ -1481,11 +1517,7 @@ async function cycleSplit() {
 async function setSplit(mode: "off" | "v" | "h") {
   if (mode === split) return;
   if (mode === "off") {
-    if (pane2Dirty) await savePane2();
-    split = "off";
-    $("#pane2").hidden = true;
-    $("#content").classList.remove("split-h");
-    setFocusedPane(1);
+    await closeSplit();
     editor.focus();
     return;
   }
@@ -1495,13 +1527,220 @@ async function setSplit(mode: "off" | "v" | "h") {
   $("#pane2").hidden = false;
   ensureEditor2();
   if (opening) {
+    if (!pane2Tabs.length) {
+      pane2Tabs = [{ path: null }];
+      pane2Active = 0;
+      emptyPane2();
+    }
     // focus the new pane so the next tree click / quick switch lands here
     setFocusedPane(2);
     editor2!.focus();
   }
+  renderPane2Tabs();
 }
 
-/** Open a text file in the split pane (full editing + autosave). */
+/** Close the split pane and all of its tabs (flushing unsaved edits). */
+async function closeSplit() {
+  if (pane2Dirty) await savePane2();
+  window.clearTimeout(pane2SaveTimer);
+  split = "off";
+  pane2Tabs = [];
+  pane2Active = 0;
+  pane2Path = null;
+  pane2Mtime = null;
+  pane2Dirty = false;
+  $("#pane2").hidden = true;
+  $("#content").classList.remove("split-h");
+  setFocusedPane(1);
+  persistPane2();
+}
+
+function renderPane2Tabs() {
+  const strip = $("#pane2-tabs");
+  strip.replaceChildren(
+    ...pane2Tabs.map((t, i) => {
+      const el = document.createElement("div");
+      el.className = "tab" + (i === pane2Active ? " current" : "");
+      if (i === pane2Active && pane2Dirty) el.classList.add("dirty");
+      if (t.path) el.title = isExternalPath(t.path) ? t.path : rel(t.path);
+      const label = document.createElement("span");
+      label.className = "tab-label";
+      label.textContent = t.path ? tabName(t.path) : "new tab";
+      const close = document.createElement("button");
+      close.className = "tab-close";
+      close.textContent = "×";
+      close.title = "Close tab (Ctrl+W)";
+      close.addEventListener("mousedown", (e) => e.stopPropagation());
+      close.addEventListener("click", () => void closePane2Tab(i));
+      el.append(label, close);
+      el.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        setFocusedPane(2);
+        if (i !== pane2Active) void switchPane2Tab(i);
+        else editor2?.focus();
+      });
+      el.addEventListener("auxclick", (e) => {
+        if (e.button === 1) void closePane2Tab(i);
+      });
+      el.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        const items: [string, () => void][] = [["close tab", () => void closePane2Tab(i)]];
+        if (pane2Tabs.length > 1) items.push(["close other tabs", () => void closeOtherPane2Tabs(i)]);
+        if (t.path) items.push(["move to main pane", () => void movePane2TabToMain(i)]);
+        items.push(["close split", () => void setSplit("off")]);
+        openCtxMenu(e, items);
+      });
+      return el;
+    }),
+  );
+  strip.querySelector(".tab.current")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  persistPane2();
+}
+
+/** Main window only: remember the split (mode + its tabs) across launches. */
+function persistPane2() {
+  if (!isMain) return;
+  localStorage.setItem(
+    "pt.split",
+    JSON.stringify({ mode: split, paths: pane2Tabs.map((t) => t.path), active: pane2Active }),
+  );
+}
+
+/** Snapshot pane 2's active tab (flushing it to disk first). */
+async function stashPane2Active() {
+  const t = pane2Tabs[pane2Active];
+  if (!t) return;
+  if (pane2Dirty) await savePane2();
+  t.path = pane2Path;
+  t.snap =
+    pane2Path && editor2
+      ? { path: pane2Path, mtime: pane2Mtime, dirty: pane2Dirty, ...editor2.snapshot() }
+      : undefined;
+}
+
+/** Make pane 2's active tab live: its snapshot, the file from disk, or empty. */
+async function activatePane2Tab() {
+  const t = pane2Tabs[pane2Active];
+  window.clearTimeout(pane2SaveTimer);
+  if (!t || !t.path) {
+    emptyPane2();
+  } else if (t.snap && t.snap.path === t.path) {
+    await restorePane2Snap(t.snap);
+    if (!pane2Path) t.path = null; // vanished while parked
+  } else if ((await api.statMtime(t.path).catch(() => null)) === null) {
+    emptyPane2(); // the file is gone (deleted/moved while parked)
+  } else {
+    await loadPane2(t.path);
+  }
+  renderPane2Tabs();
+  if (focusedPane === 2) setFocusedPane(2); // title, tree row, status follow
+}
+
+async function switchPane2Tab(i: number) {
+  if (i === pane2Active || !pane2Tabs[i]) return;
+  await stashPane2Active();
+  pane2Active = i;
+  await activatePane2Tab();
+  setFocusedPane(2);
+  editor2?.focus();
+}
+
+/** A new tab in the split pane (opening the split if needed). */
+async function newPane2Tab(path?: string) {
+  if (split === "off") {
+    if (isPhone()) return;
+    await setSplit("v");
+    if (path) await openInPane2(path);
+    return;
+  }
+  await stashPane2Active();
+  pane2Tabs.splice(pane2Active + 1, 0, { path: null });
+  pane2Active++;
+  await activatePane2Tab();
+  if (path) await openInPane2(path);
+  setFocusedPane(2);
+  editor2?.focus();
+}
+
+async function closePane2Tab(i: number) {
+  if (!pane2Tabs[i]) return;
+  if (i === pane2Active && pane2Dirty && !(await savePane2()) && pane2Dirty) return;
+  if (pane2Tabs.length === 1) {
+    // the last tab closes the split itself
+    await setSplit("off");
+    return;
+  }
+  pane2Tabs.splice(i, 1);
+  if (i < pane2Active) {
+    pane2Active--;
+    renderPane2Tabs();
+  } else if (i === pane2Active) {
+    pane2Active = Math.min(i, pane2Tabs.length - 1);
+    await activatePane2Tab();
+  } else {
+    renderPane2Tabs();
+  }
+}
+
+async function closeOtherPane2Tabs(i: number) {
+  const keep = pane2Tabs[i];
+  if (!keep) return;
+  if (i !== pane2Active) {
+    await stashPane2Active();
+    pane2Tabs = [keep];
+    pane2Active = 0;
+    await activatePane2Tab();
+  } else {
+    pane2Tabs = [keep];
+    pane2Active = 0;
+    renderPane2Tabs();
+  }
+}
+
+/** Hand a pane-1 tab's file over to the split pane (context menu / drag). */
+async function moveTabToSplit(i: number) {
+  const path = tabs[i]?.path;
+  if (!canMoveToSplit(path)) return;
+  if (i === active && dirty && !(await save()) && dirty) return;
+  await closeTab(i); // frees the file — pane 2 never mirrors pane 1's file
+  const existing = pane2Tabs.findIndex((t) => t.path === path);
+  if (existing >= 0) return switchPane2Tab(existing);
+  // reuse an empty active pane-2 tab rather than stacking a blank one
+  if (split !== "off" && !pane2Path) await openInPane2(path);
+  else await newPane2Tab(path);
+}
+
+/** Hand a split-pane tab's file back to the main pane as a new tab. */
+async function movePane2TabToMain(i: number) {
+  const path = pane2Tabs[i]?.path;
+  if (!path) return;
+  if (i === pane2Active && pane2Dirty && !(await savePane2()) && pane2Dirty) return;
+  await closePane2Tab(i);
+  setFocusedPane(1);
+  const existing = tabs.findIndex((t) => t.path === path);
+  if (existing >= 0) await switchTab(existing);
+  else await newTab(path);
+}
+
+/** Read `path` from disk into pane 2's editor (the active pane-2 tab). */
+async function loadPane2(path: string): Promise<boolean> {
+  try {
+    const file = await api.readFile(path);
+    pane2Path = path;
+    pane2Mtime = file.mtime;
+    pane2Dirty = false;
+    ensureEditor2().openDoc(file.content, path.split("/").pop() ?? path);
+    return true;
+  } catch (err) {
+    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
+    emptyPane2();
+    return false;
+  }
+}
+
+/** Open a text file in the split pane (full editing + autosave): focus its
+ * tab if one already has it, else load it into the active pane-2 tab. */
 async function openInPane2(path: string) {
   if (path === currentPath) {
     // already open in the main pane — don't edit one file in two views
@@ -1509,19 +1748,19 @@ async function openInPane2(path: string) {
     editor.focus();
     return;
   }
+  const existing = pane2Tabs.findIndex((t) => t.path === path);
+  if (existing >= 0 && existing !== pane2Active) return switchPane2Tab(existing);
   if (pane2Dirty) await savePane2();
   hideIssue();
-  try {
-    const file = await api.readFile(path);
-    pane2Path = path;
-    pane2Mtime = file.mtime;
-    pane2Dirty = false;
-    ensureEditor2().openDoc(file.content, path.split("/").pop() ?? path);
-    $("#pane2-name").textContent = rel(path);
+  if (!pane2Tabs.length) {
+    pane2Tabs = [{ path: null }];
+    pane2Active = 0;
+  }
+  if (await loadPane2(path)) {
+    pane2Tabs[pane2Active] = { path };
+    renderPane2Tabs();
     setFocusedPane(2);
     editor2!.focus();
-  } catch (err) {
-    showIssue(String(err), [{ label: "ok", run: hideIssue }]);
   }
 }
 
@@ -1530,6 +1769,27 @@ async function openInSplit(path: string) {
   if (split === "off") await setSplit("v");
   setFocusedPane(2);
   await openInPane2(path);
+}
+
+/** Bring back last session's split (main window, desktop only). */
+async function restoreSplit() {
+  if (!isMain || isPhone()) return;
+  let saved: { mode?: string; paths?: (string | null)[]; active?: number } = {};
+  try {
+    saved = JSON.parse(localStorage.getItem("pt.split") ?? "{}");
+  } catch {
+    return;
+  }
+  if (saved.mode !== "v" && saved.mode !== "h") return;
+  const paths = (saved.paths ?? []).filter((p) => p !== currentPath);
+  pane2Tabs = (paths.length ? paths : [null]).map((path) => ({ path }));
+  pane2Active = Math.min(Math.max(saved.active ?? 0, 0), pane2Tabs.length - 1);
+  split = saved.mode;
+  $("#content").classList.toggle("split-h", split === "h");
+  $("#pane2").hidden = false;
+  ensureEditor2();
+  await activatePane2Tab();
+  setFocusedPane(1);
 }
 
 /** Move `path` into a chosen subfolder of the open root (or back to the root),
@@ -1586,7 +1846,6 @@ async function moveFileTo(path: string) {
     currentPath = to;
     rememberFile(to);
   }
-  if (pane2Path === path) pane2Path = to;
   remapTabs(path, to);
   await refreshTree();
   setCurrentRow(currentPath);
@@ -1678,7 +1937,10 @@ async function savePane2(): Promise<boolean> {
       return false;
     }
     pane2Mtime = result.mtime;
-    pane2Dirty = false;
+    if (pane2Dirty) {
+      pane2Dirty = false;
+      renderPane2Tabs(); // clear the unsaved dot
+    }
     if (pane2Path === configFilePath) await applyConfigFromDisk();
     return true;
   } catch (err) {
@@ -1702,7 +1964,12 @@ function emptyPane2() {
   pane2Mtime = null;
   pane2Dirty = false;
   editor2?.openDoc("", "untitled.md");
-  $("#pane2-name").textContent = "empty — open a file here";
+  const t = pane2Tabs[pane2Active];
+  if (t) {
+    t.path = null;
+    t.snap = undefined;
+  }
+  if (split !== "off") renderPane2Tabs();
 }
 
 /** External change handling for the split pane (mirrors the main pane). */
@@ -1772,6 +2039,8 @@ async function openFile(path: string) {
       editor2?.focus();
       return;
     }
+    const inSplitTab = pane2Tabs.findIndex((t) => t.path === path);
+    if (inSplitTab >= 0) return switchPane2Tab(inSplitTab);
     // text files land in whichever pane has focus; media always in pane 1
     if (
       focusedPane === 2 &&
@@ -3439,6 +3708,7 @@ async function openRoot(path: string) {
     tabs = [blankTab()];
     active = 0;
     teardownSecondary(); // a new folder starts with no split/preview carried over
+    await closeSplit();
     closeCurrent();
   }
   const treeReady = refreshTree();
@@ -3492,6 +3762,7 @@ async function restoreSession() {
     tabs.length - 1,
   );
   await activateTab();
+  await restoreSplit();
 }
 
 /** Drop background tabs whose files vanished while the app was closed —
@@ -3594,20 +3865,35 @@ const ACTIONS: { id: string; combo: string; what: string; run: () => void }[] = 
   { id: "config", combo: "ctrl+,", what: "settings", run: () => openSettingsPanel() },
   { id: "shortcuts", combo: "ctrl+/", what: "this list", run: () => showShortcuts() },
   { id: "toggle_sidebar", combo: "ctrl+\\", what: "toggle sidebar", run: () => toggleSidebar() },
-  { id: "new_tab", combo: "ctrl+t", what: "new tab", run: () => void newTab() },
-  { id: "close_tab", combo: "ctrl+w", what: "close tab", run: () => void closeTab(active) },
-  { id: "next_tab", combo: "ctrl+tab", what: "next tab", run: () => void switchTab((active + 1) % tabs.length) },
-  { id: "prev_tab", combo: "ctrl+shift+tab", what: "previous tab", run: () => void switchTab((active + tabs.length - 1) % tabs.length) },
+  // tab commands act on whichever pane has focus (each has its own strip)
+  { id: "new_tab", combo: "ctrl+t", what: "new tab", run: () => void (inPane2() ? newPane2Tab() : newTab()) },
+  { id: "close_tab", combo: "ctrl+w", what: "close tab", run: () => void (inPane2() ? closePane2Tab(pane2Active) : closeTab(active)) },
+  { id: "next_tab", combo: "ctrl+tab", what: "next tab", run: () => void cycleTab(1) },
+  { id: "prev_tab", combo: "ctrl+shift+tab", what: "previous tab", run: () => void cycleTab(-1) },
   { id: "new_window", combo: "ctrl+alt+n", what: "new window", run: newWindow },
   { id: "split", combo: "ctrl+shift+\\", what: "split editor (vertical → horizontal → off)", run: () => void cycleSplit() },
   { id: "preview", combo: "ctrl+shift+m", what: "markdown preview (rendered, beside the editor)", run: togglePreview },
   { id: "live_preview", combo: "ctrl+shift+l", what: "live preview (hide markdown syntax off the cursor line)", run: toggleLivePreview },
   { id: "status_bar", combo: "", what: "status bar (words / characters / line:col)", run: toggleStatusBar },
   { id: "file_history", combo: "ctrl+shift+h", what: "file history — restore an earlier version", run: () => void fileHistory() },
+  { id: "nav_back", combo: "ctrl+[", what: "back through opened files", run: () => goBack() },
+  { id: "nav_forward", combo: "ctrl+]", what: "forward through opened files", run: () => goForward() },
   { id: "focus_tree", combo: "ctrl+e", what: "focus file tree (arrows move, enter opens, esc returns)", run: focusTree },
   { id: "move_file", combo: "ctrl+m", what: "move the selected file/folder to another folder", run: moveSelected },
   { id: "zen", combo: "alt+z", what: "zen mode (fullscreen, typewriter) — also F11", run: () => void toggleZen() },
 ];
+
+function inPane2() {
+  return split !== "off" && focusedPane === 2;
+}
+
+function cycleTab(step: 1 | -1) {
+  if (inPane2()) {
+    const n = pane2Tabs.length;
+    return switchPane2Tab((pane2Active + step + n) % n);
+  }
+  return switchTab((active + step + tabs.length) % tabs.length);
+}
 
 /** Normalize "Ctrl + Shift+F" → "ctrl+shift+f" with canonical modifier order. */
 function normalizeCombo(binding: string): string | null {
@@ -3677,7 +3963,7 @@ const SHORTCUTS: [string, [string, string][]][] = [
     [
       isMac
         ? ["Cmd+[ / Cmd+]", "back / forward through opened files"]
-        : ["Alt+← / Alt+→", "back / forward through opened files"],
+        : ["Ctrl+[ / Ctrl+]  or  Alt+← / Alt+→", "back / forward through opened files"],
       ["Ctrl+Enter", "open wikilink under cursor"],
       ["Ctrl+click", "follow wikilink, or open URL in browser"],
     ],
@@ -3861,6 +4147,7 @@ async function init() {
     onStatus: updateStatus,
     onSave: () => void save(),
     getNotes: () => notes,
+    getAttachments: () => attachments,
     openWikilink,
     openExternal: (url) => void openUrl(url),
     resolveImage: imageResolver(() => currentPath),
@@ -4028,10 +4315,11 @@ async function init() {
   });
   $("#tab-new").addEventListener("click", () => void newTab());
   $("#pane2-close").addEventListener("click", () => void setSplit("off"));
+  $("#pane2-new").addEventListener("click", () => void newPane2Tab());
   // focus follows the pane the user interacts with
-  $("#pane1").addEventListener("mousedown", () => setFocusedPane(1), true);
+  $("#group1").addEventListener("mousedown", () => setFocusedPane(1), true);
   $("#pane2").addEventListener("mousedown", () => setFocusedPane(2), true);
-  $("#pane1").addEventListener("focusin", () => setFocusedPane(1));
+  $("#group1").addEventListener("focusin", () => setFocusedPane(1));
   $("#pane2").addEventListener("focusin", () => setFocusedPane(2));
   for (const b of document.querySelectorAll<HTMLElement>("#sidebar-tabs button")) {
     b.addEventListener("click", () => showPane(b.dataset.tab as never));

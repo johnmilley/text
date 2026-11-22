@@ -15,5 +15,6 @@ import { latexMod } from "./latex";
 import { lessonsMod } from "./lessons";
 import { templatesMod } from "./templates";
 import { corkboardMod } from "./corkboard";
+import { manuscriptMod } from "./manuscript";
 
-export const MODS: Mod[] = [ssgMod, dataviewMod, tocMod, dailyMod, mermaidMod, latexMod, lessonsMod, templatesMod, corkboardMod];
+export const MODS: Mod[] = [ssgMod, dataviewMod, tocMod, dailyMod, mermaidMod, latexMod, lessonsMod, templatesMod, corkboardMod, manuscriptMod];

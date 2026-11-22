@@ -10,6 +10,28 @@ mod themes;
 mod watch;
 mod windows;
 
+/// WebKitGTK ships with its spell checker disabled, so the editor's
+/// `spellcheck` attribute did nothing on Linux. Enable it for the webview's
+/// context with the user's locale (from LANG/LC_ALL; dictionaries come from
+/// enchant — hunspell-<lang> packages). Idempotent, so it simply runs on every
+/// page load of every window.
+#[cfg(target_os = "linux")]
+fn enable_spellcheck(webview: &tauri::Webview) {
+    let lang = ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .find(|v| !v.is_empty() && v != "C" && v != "POSIX")
+        .and_then(|v| v.split(['.', '@']).next().map(str::to_owned))
+        .unwrap_or_else(|| "en_US".into());
+    let _ = webview.with_webview(move |wv| {
+        use webkit2gtk::{WebContextExt, WebViewExt};
+        if let Some(ctx) = wv.inner().context() {
+            ctx.set_spell_checking_enabled(true);
+            ctx.set_spell_checking_languages(&[lang.as_str()]);
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -18,6 +40,10 @@ pub fn run() {
         // remember window size/position across launches (per window label);
         // without this the WM places the window wherever it pleases
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .on_page_load(|_webview, _payload| {
+            #[cfg(target_os = "linux")]
+            enable_spellcheck(_webview);
+        })
         .manage(watch::WatcherState::default())
         .manage(windows::WindowParams::default())
         .setup(|app| {

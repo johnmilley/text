@@ -15,7 +15,14 @@ import {
 } from "@codemirror/autocomplete";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { LanguageDescription, codeFolding, foldGutter, foldKeymap } from "@codemirror/language";
+import {
+  LanguageDescription,
+  codeFolding,
+  foldGutter,
+  foldKeymap,
+  foldNodeProp,
+} from "@codemirror/language";
+import type { MarkdownConfig } from "@lezer/markdown";
 import { vim } from "@replit/codemirror-vim";
 import { baseHighlighting, markdownStyling, toggleCheckboxAt, urlAt, wikilinkAt } from "./mdstyle";
 import { imageEmbeds, type ImageResolver } from "./images";
@@ -33,6 +40,9 @@ export interface EditorCallbacks {
   onStatus: () => void;
   onSave: () => void;
   getNotes: () => NoteRef[];
+  /** Non-note files (audio, images, PDFs, …) offered by `[[` completion;
+   * `name` is the full file name, extension included. */
+  getAttachments?: () => NoteRef[];
   openWikilink: (target: string) => void;
   /** Open an http(s) URL in the system browser. */
   openExternal: (url: string) => void;
@@ -84,6 +94,14 @@ const typewriterScroll = (anchor: TypewriterAnchor) =>
   });
 
 const URL_RE = /^https?:\/\/\S+$/i;
+
+/** Content attributes for the spellcheck setting. CodeMirror defaults to
+ * autocorrect="off", and WebKit (iOS Safari, macOS) won't draw misspelling
+ * underlines while autocorrect is off — so the two travel together. */
+const spellAttrs = (on: boolean) =>
+  EditorView.contentAttributes.of(
+    on ? { spellcheck: "true", autocorrect: "on" } : { spellcheck: "false", autocorrect: "off" },
+  );
 
 /** Words for the status bar: letters/digits with internal apostrophes and
  * hyphens, so "don't" and "well-known" each count once. */
@@ -160,25 +178,75 @@ const cmTheme = EditorView.theme({
   },
 });
 
-function wikiCompletions(getNotes: () => NoteRef[]) {
+/** Markdown folding, prose-editor style. lang-markdown makes *every*
+ * multi-line block foldable — a paragraph whose source spans two lines, a
+ * blockquote, an HTML block, a wrapped list item — which scatters chevrons
+ * through ordinary prose. Keep the useful ones: heading sections (the
+ * language's foldService, untouched here), fenced code blocks, and list
+ * items that own a nested list. Code inside a fence still folds the way its
+ * own language does. */
+const noFold = () => null;
+const proseFolding: MarkdownConfig = {
+  props: [
+    foldNodeProp.add({
+      Paragraph: noFold,
+      Blockquote: noFold,
+      HTMLBlock: noFold,
+      CommentBlock: noFold,
+      ProcessingInstructionBlock: noFold,
+      LinkReference: noFold,
+      SetextHeading1: noFold,
+      SetextHeading2: noFold,
+      Table: noFold,
+      ListItem: (node, state) => {
+        // only a list item with a sub-list folds (the sub-list collapses)
+        for (let ch = node.firstChild; ch; ch = ch.nextSibling) {
+          if (ch.name === "BulletList" || ch.name === "OrderedList") {
+            return { from: state.doc.lineAt(node.from).to, to: node.to };
+          }
+        }
+        return null;
+      },
+    }),
+  ],
+};
+
+const ATTACHMENT_KIND: [RegExp, string][] = [
+  [/\.(mp3|m4a|wav|ogg|oga|opus|flac|aac|webm)$/i, "audio"],
+  [/\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i, "image"],
+  [/\.(mp4|mov|mkv|avi|m4v)$/i, "video"],
+  [/\.pdf$/i, "pdf"],
+];
+const attachmentKind = (name: string) =>
+  ATTACHMENT_KIND.find(([re]) => re.test(name))?.[1] ?? "file";
+
+/** `[[` completes notes (by name) and attachments (by full file name — audio,
+ * images, PDFs, …), so a recording can be linked without dragging it in from
+ * the file tree. Notes rank first; attachments carry their kind as detail. */
+function wikiCompletions(getNotes: () => NoteRef[], getAttachments?: () => NoteRef[]) {
   return (ctx: CompletionContext): CompletionResult | null => {
     const match = ctx.matchBefore(/\[\[[^[\]]*$/);
     if (!match) return null;
+    const option = (label: string, extra: { detail?: string; boost?: number }) => ({
+      label,
+      ...extra,
+      apply: (view: EditorView, _completion: unknown, from: number, to: number) => {
+        const closed = view.state.sliceDoc(to, to + 2) === "]]";
+        const insert = label + (closed ? "" : "]]");
+        const cursor = from + label.length + 2;
+        view.dispatch({
+          changes: { from, to, insert },
+          selection: { anchor: cursor },
+        });
+      },
+    });
     return {
       from: match.from + 2,
       validFor: /^[^[\]]*$/,
-      options: getNotes().map((note) => ({
-        label: note.name,
-        apply: (view, _completion, from, to) => {
-          const closed = view.state.sliceDoc(to, to + 2) === "]]";
-          const insert = note.name + (closed ? "" : "]]");
-          const cursor = from + note.name.length + 2;
-          view.dispatch({
-            changes: { from, to, insert },
-            selection: { anchor: cursor },
-          });
-        },
-      })),
+      options: [
+        ...getNotes().map((note) => option(note.name, { boost: 1 })),
+        ...(getAttachments?.() ?? []).map((f) => option(f.name, { detail: attachmentKind(f.name) })),
+      ],
     };
   };
 }
@@ -310,13 +378,13 @@ export class Editor {
       EditorView.lineWrapping,
       this.lineNos.of(this.lineNumbersOn ? lineNumbers() : []),
       this.activeLine.of(this.highlightLineOn ? highlightActiveLine() : []),
-      this.spellcheck.of(EditorView.contentAttributes.of({ spellcheck: this.spellcheckOn ? "true" : "false" })),
+      this.spellcheck.of(spellAttrs(this.spellcheckOn)),
       // heading sections (and code blocks, lists, …) fold via the language's
       // fold info; the gutter chevron shows on hover-worthy lines only
       codeFolding({ placeholderText: "⋯" }),
       foldGutter(),
       highlightSelectionMatches(),
-      autocompletion({ override: [wikiCompletions(cbs.getNotes)], icons: false }),
+      autocompletion({ override: [wikiCompletions(cbs.getNotes, cbs.getAttachments)], icons: false }),
       keymap.of([
         {
           key: "Mod-s",
@@ -343,14 +411,14 @@ export class Editor {
           shift: (view) => this.markdownish && tablePrevCell(view),
         },
         { key: "Enter", run: (view) => this.markdownish && tableNextRow(view) },
-        // back/forward nav: Alt+arrows shadow defaultKeymap's cursor motion —
-        // except on macOS, where Option+arrows must stay word motion; there
-        // the Finder/Safari convention Cmd+[ / Cmd+] navigates instead
+        // back/forward nav through opened files: Mod+[ / Mod+] everywhere
+        // (shadowing defaultKeymap's indentLess/indentMore — Tab and
+        // Shift+Tab indent), plus Alt+arrows off macOS, where Option+arrows
+        // must stay word motion
+        { key: "Mod-[", run: () => (cbs.onNavBack(), true) },
+        { key: "Mod-]", run: () => (cbs.onNavForward(), true) },
         ...(isMac
-          ? [
-              { key: "Mod-[", run: () => (cbs.onNavBack(), true) },
-              { key: "Mod-]", run: () => (cbs.onNavForward(), true) },
-            ]
+          ? []
           : [
               { key: "Alt-ArrowLeft", run: () => (cbs.onNavBack(), true) },
               { key: "Alt-ArrowRight", run: () => (cbs.onNavForward(), true) },
@@ -499,9 +567,7 @@ export class Editor {
         this.lineNos.reconfigure(this.lineNumbersOn ? lineNumbers() : []),
         this.activeLine.reconfigure(this.highlightLineOn ? highlightActiveLine() : []),
         this.vimMode.reconfigure(this.vimOn ? vim() : []),
-        this.spellcheck.reconfigure(
-          EditorView.contentAttributes.of({ spellcheck: this.spellcheckOn ? "true" : "false" }),
-        ),
+        this.spellcheck.reconfigure(spellAttrs(this.spellcheckOn)),
       ],
     });
     // the language compartment came back frozen too — rebuild it so a tab
@@ -517,7 +583,7 @@ export class Editor {
       this.view.dispatch({
         effects: this.lang.reconfigure([
           // markdownLanguage = commonmark + GFM (tables, strikethrough, task lists)
-          markdown({ base: markdownLanguage, codeLanguages: languages }),
+          markdown({ base: markdownLanguage, codeLanguages: languages, extensions: proseFolding }),
           markdownStyling(),
           // live preview hides the markup mdstyle has just finished styling —
           // it rides on top, and switching it off leaves plain source mode
@@ -597,9 +663,7 @@ export class Editor {
     if (on === this.spellcheckOn) return;
     this.spellcheckOn = on;
     this.view.dispatch({
-      effects: this.spellcheck.reconfigure(
-        EditorView.contentAttributes.of({ spellcheck: on ? "true" : "false" }),
-      ),
+      effects: this.spellcheck.reconfigure(spellAttrs(on)),
     });
   }
 

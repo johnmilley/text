@@ -98,6 +98,10 @@ export interface TextAPI {
   fs: {
     /** The folder tree the sidebar shows (text/image/av/pdf files only). */
     listTree(root: string): Promise<Entry[]>;
+    /** The same tree in the exact order the sidebar shows it: folders before
+     * files, and any manual (corkboard) arrangement applied — the order a
+     * writer has put their chapters/scenes in. */
+    listTreeSorted(root: string): Promise<Entry[]>;
     /** Read a UTF-8 text file. */
     readText(path: string): Promise<string>;
     /** Read any file (incl. binaries) as base64. */
@@ -112,6 +116,13 @@ export interface TextAPI {
     createFile(path: string): Promise<void>;
     /** Native folder picker; resolves to the chosen path or `null`. */
     pickDirectory(opts?: PickDirOptions): Promise<string | null>;
+    /** Write raw bytes to an exact path (overwriting). */
+    writeBinary(path: string, bytes: Uint8Array): Promise<void>;
+  };
+  platform: {
+    /** True in the desktop app; false in the web/PWA build, where there is
+     * no local filesystem (use `ui.download` to hand the user a file). */
+    desktop: boolean;
   };
   editor: {
     /** Absolute path of the note in the focused editor pane, or `null` when
@@ -153,6 +164,8 @@ export interface TextAPI {
     prompt(label: string, initial?: string): Promise<string | null>;
     /** Close the modal opened via info/confirm/prompt. */
     close(): void;
+    /** Hand the user a generated file as a browser download (web/PWA). */
+    download(name: string, bytes: Uint8Array, mime: string): void;
   };
 }
 

@@ -45,6 +45,12 @@ export function applyTheme(theme: Theme) {
   }
   if (editorFontOverride) root.style.setProperty("--font-editor", editorFontOverride);
   root.dataset.dark = String(theme.dark);
+  // browser / iOS status-bar tint follows the theme's chrome colour, and
+  // color-scheme keeps native controls (scrollbars, pickers) in step
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", theme.colors["bg-panel"] ?? TOKEN_DEFAULTS["bg-panel"]);
+  root.style.colorScheme = theme.dark ? "dark" : "light";
 
   let style = document.getElementById("theme-css");
   if (!style) {

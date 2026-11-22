@@ -2848,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "pt"
-version = "0.2.10"
+version = "0.3.1"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -2867,6 +2867,7 @@ dependencies = [
  "tauri-plugin-window-state",
  "toml 0.9.12+spec-1.1.0",
  "trash",
+ "webkit2gtk",
 ]
 
 [[package]]

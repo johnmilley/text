@@ -1,6 +1,6 @@
 [package]
 name = "pt"
-version = "0.2.10"
+version = "0.3.1"
 description = "A local-first markdown editor"
 authors = ["Johnathan Milley"]
 edition = "2021"
@@ -36,3 +36,8 @@ tauri-plugin-window-state = "2.4.1"
 arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control", "image-data"] }
 png = "0.18.1"
 
+
+# Linux: turn on WebKitGTK's spell checker (off by default per web context);
+# same version/feature wry already builds against
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2.0", features = ["v2_40"] }

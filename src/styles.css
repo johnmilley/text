@@ -439,6 +439,21 @@ button:hover {
   flex-direction: column;
 }
 
+/* editor group 1: the main tab strip over pane 1 (+ its preview). With no
+   split it fills #content, so the strip spans the editor as it always has */
+#group1 {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+#group1-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 /* overlays (image/audio/table/pdf/welcome) anchor to pane 1, so the tab bar
    and the split pane stay reachable while one is open */
 #pane1 {
@@ -465,22 +480,51 @@ button:hover {
 #pane2[hidden] {
   display: none;
 }
+/* the split pane's own tab strip — same look as #tabbar */
 #pane2-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 6px 2px 12px;
+  align-items: stretch;
+  height: 30px;
+  flex-shrink: 0;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+#pane2-tabs {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+#pane2-tabs::-webkit-scrollbar {
+  display: none;
+}
+#pane2-bar .bar-spacer {
+  flex: 1;
+}
+#pane2-new,
+#pane2-close {
+  padding: 0 10px;
+  border-radius: 0;
   color: var(--fg-chrome);
-  font-size: 0.85em;
 }
-#pane2.pane-focused #pane2-bar {
+#pane2-new:hover,
+#pane2-close:hover {
   color: var(--fg);
-  box-shadow: inset 0 2px 0 var(--accent);
+  background: var(--bg-hover);
 }
-#pane2-name,
+/* while split, only the focused group's current tab wears the accent; the
+   other group's current tab stays lit but quiet */
+#content:has(#pane2:not([hidden])) #group1:not(.pane-focused) .tab.current,
+#pane2:not(.pane-focused) .tab.current {
+  box-shadow: none;
+  color: var(--fg-chrome);
+}
+#content:has(#pane2:not([hidden])) #group1:not(.pane-focused) .tab.current .tab-close,
+#pane2:not(.pane-focused) .tab.current .tab-close {
+  visibility: hidden;
+}
 #preview-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -504,10 +548,6 @@ button:hover {
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--border);
-}
-#content.split-h #preview {
-  border-left: none;
-  border-top: 1px solid var(--border);
 }
 #preview[hidden] {
   display: none;
@@ -1847,6 +1887,135 @@ mark {
   padding: 5px 8px;
   font: inherit;
 }
+/* manuscript mod: the compile dialog */
+.ms-box {
+  width: min(520px, 94vw);
+  max-height: 86vh;
+  overflow-y: auto;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+/* the caption brings its own padding; give the rest the same gutter */
+.ms-box > :not(.modal-caption) {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+.ms-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 30vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 0;
+  flex-shrink: 0;
+}
+.ms-list:empty {
+  display: none;
+}
+.ms-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.ms-row:hover {
+  background: var(--bg-hover);
+}
+.ms-row:has(input:not(:checked)) .ms-title {
+  color: var(--fg-muted);
+  text-decoration: line-through;
+}
+.ms-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ms-words,
+.ms-hint {
+  color: var(--fg-muted);
+  font-size: 0.88em;
+  white-space: nowrap;
+}
+.ms-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.ms-two {
+  display: flex;
+  gap: 10px;
+}
+.ms-two > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.ms-contact {
+  resize: vertical;
+  min-height: 3.6em;
+}
+.ms-dest {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.ms-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* keep the folder name end visible */
+  text-align: left;
+}
+.ms-link {
+  color: var(--link, var(--accent));
+  padding: 0;
+}
+.ms-formats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ms-format {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.ms-format:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.ms-format:disabled {
+  opacity: 0.5;
+}
+.ms-format-name {
+  font-weight: 600;
+}
+.ms-format-hint {
+  color: var(--fg-muted);
+  font-size: 0.8em;
+  text-align: center;
+}
+@media (max-width: 700px) {
+  .ms-formats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ms-two {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
 /* templates mod: the picker modal */
 .tpl-box {
   width: min(400px, 92vw);
@@ -2207,6 +2376,7 @@ span.cork-crumb {
 
 body.zen #titlebar,
 body.zen #tabbar,
+body.zen #pane2-bar,
 body.zen .grip {
   display: none !important;
 }
@@ -2380,7 +2550,7 @@ body.web #status {
 @media (max-width: 700px) {
   body.web #sidebar {
     position: fixed;
-    top: calc(30px + env(safe-area-inset-top));
+    top: calc(48px + env(safe-area-inset-top));
     bottom: 0;
     left: 0;
     width: min(85vw, 320px);
@@ -2396,10 +2566,14 @@ body.web #status {
   body.web #resizer {
     display: none;
   }
+  /* sheets open just under the (48px + safe-area) top bar */
   body.web .modal-box {
-    margin-top: 4vh;
+    margin-top: calc(56px + env(safe-area-inset-top));
     width: calc(100vw - 20px);
     max-height: 72vh;
+  }
+  body.web .ms-box {
+    max-height: calc(100dvh - 72px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   }
   body.web #tree {
     font-size: 15px;
@@ -2410,14 +2584,116 @@ body.web #status {
     padding-bottom: 6px;
   }
 
-  /* bigger tap targets for the top-bar controls on phones */
+  /* the top bar on phones: a full 44pt touch row (Apple's minimum), opaque,
+     and clear of the status bar. iOS 26 lays a soft "glass" blur along the
+     top edge of web apps that bleeds into the first ~10pt of content — a
+     30px bar sat entirely inside it, which is why it looked smeared. The
+     extra top padding moves the icons out of that band. */
+  body.web #titlebar {
+    height: calc(48px + env(safe-area-inset-top));
+    padding-top: calc(env(safe-area-inset-top) + 4px);
+    padding-left: max(4px, env(safe-area-inset-left));
+    padding-right: max(4px, env(safe-area-inset-right));
+    background: var(--bg-panel);
+  }
+  /* the title is just "pt — name.md", already shown on the tab: give its
+     room to the buttons instead */
+  body.web #titlebar-title {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0;
+    font-size: 0;
+  }
+  body.web #titlebar-nav,
+  body.web #titlebar-actions {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
   body.web #btn-sidebar,
   body.web #titlebar-nav button,
   body.web #titlebar-actions button {
-    width: 40px;
+    width: 42px;
+    min-width: 34px;
+    flex: 0 1 auto;
+    border-radius: 10px;
+  }
+  body.web #titlebar-nav button svg,
+  body.web #titlebar-actions button svg {
+    width: 21px;
+    height: 21px;
   }
   body.web #btn-sidebar {
-    font-size: 17px;
+    font-size: 19px;
+  }
+  /* no hover on touch — a pressed state instead */
+  body.web #titlebar button:hover {
+    background: none;
+  }
+  body.web #titlebar button:active {
+    background: var(--bg-hover);
+  }
+
+  /* tabs: a thumb-sized strip with the close button always showing */
+  body.web #tabbar {
+    height: 40px;
+  }
+  body.web .tab {
+    padding: 0 4px 0 14px;
+    font-size: 14px;
+  }
+  body.web .tab-close {
+    visibility: visible;
+    padding: 0 10px;
+    font-size: 16px;
+    align-self: stretch;
+  }
+  body.web #tab-new {
+    padding: 0 16px;
+    font-size: 18px;
+  }
+
+  /* no fold gutter on phones: chevrons are too small to tap reliably and the
+     column costs ~10% of the screen width */
+  body.web .cm-foldGutter {
+    display: none !important;
+  }
+
+  body.web #statusbar {
+    padding-bottom: max(3px, env(safe-area-inset-bottom));
+  }
+
+  /* drawer: thumb-sized pane switcher */
+  body.web #sidebar-tabs button {
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  /* settings: one scrolling row of tabs (no "zen / mode" wrap), more height,
+     and nothing poking past the sheet's edge */
+  body.web .settings-box {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 72px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+  body.web .settings-tabs {
+    padding: 0 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  body.web .settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  body.web .settings-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 10px 10px;
+  }
+  body.web .settings-body {
+    overflow-x: hidden;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  body.web .settings-foot {
+    justify-content: center;
   }
 
   /* single-pane on phones: preview REPLACES the editor (an edit/preview toggle,
@@ -2447,6 +2723,17 @@ body.web #status {
   body.web #preview-body {
     padding-left: 14px;
     padding-right: 14px;
+  }
+}
+
+/* touch devices: iOS Safari zooms the whole page when a focused field's text
+   is under 16px, and never zooms back — the root cause of a "stuck zoomed"
+   (and soft-looking) UI after using search or the quick switcher */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
   }
 }
 

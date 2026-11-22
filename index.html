@@ -79,11 +79,14 @@
       <div id="resizer"></div>
 
       <main id="main">
+        <div id="content">
+        <!-- editor group 1: its tab strip, the main pane, and its preview -->
+        <div id="group1" class="pane-focused">
         <div id="tabbar">
           <div id="tabs"></div>
           <button id="tab-new" title="New tab (Ctrl+T)" aria-label="New tab">+</button>
         </div>
-        <div id="content">
+        <div id="group1-body">
         <div id="pane1">
         <div id="editor-host"></div>
         <button id="btn-table" hidden>view as table</button>
@@ -129,14 +132,6 @@
         <!-- new-tab / welcome screen, built by renderWelcome() in main.ts -->
         <div id="welcome"></div>
         </div>
-        <!-- second editor pane (Ctrl+Shift+\ cycles vertical/horizontal/off) -->
-        <div id="pane2" hidden>
-          <div id="pane2-bar">
-            <span id="pane2-name">empty — open a file here</span>
-            <button id="pane2-close" title="Close split" aria-label="Close split">×</button>
-          </div>
-          <div id="editor2-host"></div>
-        </div>
         <!-- rendered markdown preview (Ctrl+Shift+M) -->
         <div id="preview" hidden>
           <div id="preview-bar">
@@ -145,6 +140,19 @@
             <button id="preview-close" title="Close preview (Ctrl+Shift+M)" aria-label="Close preview">×</button>
           </div>
           <div id="preview-body"></div>
+        </div>
+        </div>
+        </div>
+        <!-- editor group 2: the split pane, with its own tab strip
+             (Ctrl+Shift+\ cycles vertical/horizontal/off) -->
+        <div id="pane2" hidden>
+          <div id="pane2-bar">
+            <div id="pane2-tabs"></div>
+            <button id="pane2-new" title="New tab in the split (Ctrl+T)" aria-label="New tab in the split">+</button>
+            <span class="bar-spacer"></span>
+            <button id="pane2-close" title="Close split (Ctrl+Shift+\)" aria-label="Close split">×</button>
+          </div>
+          <div id="editor2-host"></div>
         </div>
         </div>
         <!-- issue bar: hidden unless something needs attention -->
