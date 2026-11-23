@@ -18,10 +18,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest # Apple silicon
-            args: "--target aarch64-apple-darwin"
-          - platform: macos-latest # Intel
-            args: "--target x86_64-apple-darwin"
+          - platform: macos-latest # universal: Apple silicon + Intel in one .dmg
+            args: "--target universal-apple-darwin"
           - platform: ubuntu-22.04
             # linuxdeploy (the AppImage bundler tauri-action shells out to) is
             # broken in CI right now — a widely reported, still-open upstream
