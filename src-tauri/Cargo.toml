@@ -1,6 +1,6 @@
 [package]
 name = "pt"
-version = "0.3.1"
+version = "0.3.2"
 description = "A local-first markdown editor"
 authors = ["Johnathan Milley"]
 edition = "2021"
